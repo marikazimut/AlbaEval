@@ -5,7 +5,7 @@ from collections import Counter
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from src.bounding_box import BoundingBox
+from object_detection.external_libraries.review_object_detection_metrics.src.bounding_box import BoundingBox
 from src.utils.enumerators import (BBFormat, CoordinatesType,
                                    MethodAveragePrecision)
 

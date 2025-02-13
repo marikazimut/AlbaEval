@@ -3,9 +3,18 @@ import os
 import yaml
 import pathlib
 from object_detection import metrics, plot_utils, mapping
+import logging
 
 # Dynamically import detector modules
 from object_detection.detectors import yolo_detector #, detr_detector  # (detr_detector might be used later)
+
+def setup_logger(log_file="pipeline.log"):
+    """Set up logging configuration."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[logging.FileHandler(log_file), logging.StreamHandler()],
+    )
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Object Detection Evaluation Pipeline")
@@ -49,17 +58,24 @@ def main():
     # Run detector on test-set images
     # (The detector is expected to return predictions in a universal format: list of dicts or similar)
     predictions, avg_inference_speed = detector.run_inference(test_images_dir, args.img_size, model_weights_dir, args.weights)
-    
+    logging.info(f"Finished running inference on {test_images_dir}")
+
     # Save the raw predictions (text files) for subclasses
     detector.save_predictions(predictions, subclass_dir_pred)
+    logging.info(f"Saved predictions to {subclass_dir_pred}")
     # avg_inference_speed = 0.0
 
     # Compute evaluation metrics and graphs for subclass outputs.
+    logging.info(f"Computing detection metrics for {subclass_dir_pred}")
     metrics_results = metrics.compute_detection_metrics(subclass_dir_pred, test_labels_dir, args.img_size, avg_inference_speed=avg_inference_speed)
     metrics.save_metrics_csv(metrics_results, os.path.join(subclass_output, "results.csv"))
-    plot_utils.plot_all(metrics_results, subclass_output)
-    
+    voc_metrics = metrics.compute_pascalvoc_metrics(subclass_dir_pred, test_labels_dir, iou_threshold=0.5)
+    metrics.save_voc_metrics_csv(voc_metrics, os.path.join(subclass_output, "voc_results.csv"))
+    plot_utils.plot_all(voc_metrics, subclass_output, subclass_dir_pred, test_labels_dir, config)
+    logging.info(f"Plotted metrics for {subclass_output}")
+
     # Map subclass predictions to superclasses using the mapping module.
+    logging.info(f"Mapping subclass predictions to superclasses for {subclass_dir_pred}")
     superclass_dir_pred = os.path.join(superclass_output, "predictions")
     if not os.path.exists(superclass_dir_pred):
         superclass_predictions  = mapping.map_to_superclasses(subclass_dir_pred, config)
@@ -73,9 +89,13 @@ def main():
     else:
         print(f"{superclass_labels_dir} already exists. Skipping mapping.")
     # Compute and save metrics/plots for superclass predictions.
+    logging.info(f"Computing detection metrics for {superclass_dir_pred}")
     superclass_metrics = metrics.compute_detection_metrics(superclass_dir_pred, superclass_labels_dir, args.img_size, avg_inference_speed=None, use_superclasses=True)
     metrics.save_metrics_csv(superclass_metrics, os.path.join(superclass_output, "results.csv"))
-    plot_utils.plot_all(superclass_metrics, superclass_output)
-    
+    voc_metrics = metrics.compute_pascalvoc_metrics(superclass_dir_pred, superclass_labels_dir, iou_threshold=0.5)
+    metrics.save_voc_metrics_csv(voc_metrics, os.path.join(superclass_output, "voc_results.csv"))
+    plot_utils.plot_all(voc_metrics, superclass_output, superclass_dir_pred, superclass_labels_dir, config, is_superclass=True)
+    logging.info(f"Plotted metrics for {superclass_output}")
 if __name__ == "__main__":
+    setup_logger()
     main()

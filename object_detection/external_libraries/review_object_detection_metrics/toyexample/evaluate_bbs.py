@@ -51,11 +51,11 @@ gt_bbs = [bb for bb in gt_bbs if bb.get_class_id() == 'cat']
 det_bbs = [bb for bb in det_bbs if bb.get_class_id() == 'cat']
 
 # Uncomment to plot the distribution bounding boxes per classes
-# dict_gt = BoundingBox.get_amount_bounding_box_all_classes(gt_bbs, reverse=False)
-# plot_bb_per_classes(dict_gt, horizontally=True, rotation=0, show=True, extra_title=' (groundtruths)')
-# clases_gt = [b.get_class_id() for b in gt_bbs]
-# dict_det = BoundingBox.get_amount_bounding_box_all_classes(det_bbs, reverse=True)
-# general_utils.plot_bb_per_classes(dict_det, horizontally=False, rotation=80, show=True, extra_title=' (detections)')
+dict_gt = BoundingBox.get_amount_bounding_box_all_classes(gt_bbs, reverse=False)
+plot_bb_per_classes(dict_gt, horizontally=True, rotation=0, show=True, extra_title=' (groundtruths)')
+clases_gt = [b.get_class_id() for b in gt_bbs]
+dict_det = BoundingBox.get_amount_bounding_box_all_classes(det_bbs, reverse=True)
+general_utils.plot_bb_per_classes(dict_det, horizontally=False, rotation=80, show=True, extra_title=' (detections)')
 
 #############################################################
 # EVALUATE WITH COCO METRICS

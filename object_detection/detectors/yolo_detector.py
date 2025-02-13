@@ -24,7 +24,7 @@ class YOLODetector:
             image_path = os.path.join(images_dir, image_file)
             
             start_time = time.time()
-            results = model.predict(image_path, imgsz=img_size)  # pseudocode: adjust as needed
+            results = model.predict(image_path, imgsz=img_size, verbose=False)  # pseudocode: adjust as needed
             end_time = time.time()
             inference_times.append(end_time - start_time)
             
