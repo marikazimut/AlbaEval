@@ -1,0 +1,74 @@
+# object_detection/config.yaml
+name_to_index:
+    "Merchant": 0
+    "Military": 1
+    "SWC": 2
+    "Support": 3
+    "Dvora": 4
+    "Motor": 5
+    "Patrol-Boat": 6
+    "Pilot": 7
+    "Bulk": 8
+    "Containers": 9
+    "General-Cargo": 10
+    "Ro-Ro": 11
+    "Tanker": 12
+    "Saar-4.5": 13
+    "Saar-5": 14
+    "Submarine": 15
+    "Buoy": 16
+    "Sailing": 17
+    "Cruise": 18
+    "Ferry": 19
+    "Supply": 20
+    "Tug": 21
+    "Yacht": 22
+    "Fishing": 23
+    "Rubber": 24
+    "Patrol": 25
+    "Saar-6": 26
+    "BWC": 27
+
+mappings:
+    "Merchant": [
+        "Bulk",
+        "Containers",
+        "General-Cargo",
+        "Ro-Ro",
+        "Tanker",
+        "Merchant"
+    ]
+    "Military": [
+        "Saar-4.5",
+        "Saar-5",
+        "Submarine",
+        "Military"
+    ]
+    "SWC": [
+        "Buoy",
+        "Sailing",
+        "SWC"
+    ]
+    "Support": [
+        "Cruise",
+        "Ferry",
+        "Supply",
+        "Tug",
+        "Yacht",
+        "Fishing", 
+        "Support"
+    ]
+    "Dvora": [
+        "Dvora"
+    ]
+    "Motor": [
+        "Rubber",
+        "Motor"
+    ]
+    "Patrol-Boat": [
+        "Patrol-Boat",
+        "Patrol"
+    ]
+    "Pilot": [
+        "Pilot"
+    ]

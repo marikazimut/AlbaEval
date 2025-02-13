@@ -1,0 +1,22 @@
+ 
+.idea
+
+# Ignore all text files
+*.txt
+
+# Ignore image files (common image extensions)
+*.jpg
+*.jpeg
+*.png
+
+*.pt
+*.pth
+
+*.csv
+*.npz
+
+Albatros*
+models*
+test_sets*
+outputs*
+
