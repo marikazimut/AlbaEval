@@ -18,8 +18,8 @@ def setup_logger(log_file="pipeline.log"):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Object Detection Evaluation Pipeline")
-    parser.add_argument("--model", type=str, default="yolo9", help="Model name (e.g., 'yolo11', 'yolo9', 'detr')")
-    parser.add_argument("--weights", type=str, default="Albatross-v0.2.pt", help="Model weights file (e.g., 'Albatross-v0.3.pt', 'Albatross-v0.2.pt')")
+    parser.add_argument("--model", type=str, default="yolo11", help="Model name (e.g., 'yolo11', 'yolo9', 'detr')")
+    parser.add_argument("--weights", type=str, default="Albatross-v0.3.pt", help="Model weights file (e.g., 'Albatross-v0.3.pt', 'Albatross-v0.2.pt')")
     parser.add_argument("--test_set", type=str, default="Azimut-Haifa-Dataset-v0.4", help="Test-set version to evaluate")
     parser.add_argument("--img_size", type=int, default=[1088, 1920], help="Input image size for the detector")
     return parser.parse_args()

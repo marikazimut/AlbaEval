@@ -1,19 +1,16 @@
 import argparse
 import os
+import math
+import io
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import textwrap
 import matplotlib.gridspec as gridspec
 
-# --- Helper Functions ---
+# --- Helper Functions (unchanged) ---
 
 def find_model_subfolder(weights_name, outputs_root):
-    """
-    Search inside each model folder in outputs_root for a folder that contains
-    the specified weights_name and its 'subclass' subfolder.
-    Returns: (subclass_path, model_type)
-    """
     for model_type in os.listdir(outputs_root):
         model_type_path = os.path.join(outputs_root, model_type)
         if not os.path.isdir(model_type_path):
@@ -24,11 +21,6 @@ def find_model_subfolder(weights_name, outputs_root):
     raise FileNotFoundError(f"Could not find metrics for weights '{weights_name}' in {outputs_root}")
 
 def load_model_metrics(weights_name, outputs_root):
-    """
-    Given a weights_name and the outputs_root, find the corresponding subclass folder
-    and load the two CSV files: results.csv and voc_results.csv.
-    Returns: a dict of metrics (including keys from results.csv and aggregated voc_results).
-    """
     subclass_path, model_type = find_model_subfolder(weights_name, outputs_root)
     
     results_csv = os.path.join(subclass_path, "results.csv")
@@ -37,13 +29,11 @@ def load_model_metrics(weights_name, outputs_root):
     if not os.path.exists(results_csv):
         raise FileNotFoundError(f"Results CSV not found at {results_csv}")
     
-    # Load overall metrics from results.csv (assume a single-row CSV)
     df_results = pd.read_csv(results_csv)
     metrics = {}
     for col in df_results.columns:
         metrics[col] = df_results.iloc[0][col]
     
-    # Attempt to load voc_results.csv and compute mean precision/recall
     if os.path.exists(voc_csv):
         try:
             df_voc = pd.read_csv(voc_csv)
@@ -62,103 +52,104 @@ def load_model_metrics(weights_name, outputs_root):
     if voc_recall is not None:
         metrics['voc_recall'] = voc_recall
 
-    # Include additional info (e.g., model type)
+    confusion_img = os.path.join(subclass_path, "confusion_matrix.png")
+    if os.path.exists(confusion_img):
+        metrics["confusion_matrix"] = confusion_img
+
     metrics['model_type'] = model_type
     metrics['weights_name'] = weights_name
     return metrics
 
 def create_summary_table(metrics_list, model_names):
-    """
-    Given a list of metrics dictionaries (one per model) and their corresponding names,
-    produce a summary DataFrame where rows are metric names and columns are models.
-    """
     all_keys = set()
     for m in metrics_list:
         all_keys.update(m.keys())
-    # Remove non-numeric keys if desired.
     all_keys.discard('model_type')
     all_keys.discard('weights_name')
-    
+    all_keys.discard('confusion_matrix')  # handled separately
     summary = {}
     for key in sorted(all_keys):
         summary[key] = []
         for m in metrics_list:
             summary[key].append(m.get(key, float('nan')))
     summary_df = pd.DataFrame(summary, index=model_names)
-    return summary_df.T  # rows = metrics, columns = models
+    return summary_df.T
 
 def plot_metric_bar(summary_df, metric_name, ax):
-    """
-    Plot a bar chart comparing a specific metric across models.
-    Adjusts fonts and spacing so labels do not overlap.
-    """
+    label_name = metric_name
+    if metric_name=="AR":
+        metric_name = "AR100"
     if metric_name not in summary_df.index:
         ax.text(0.5, 0.5, f"Metric {metric_name} not found", ha='center', fontsize=10)
         return
     values = summary_df.loc[metric_name]
     bars = ax.bar(range(len(values)), values, color='steelblue', edgecolor='black')
-    ax.set_title(metric_name, fontsize=12)
-    ax.set_ylabel(metric_name, fontsize=10)
+    ax.set_title(label_name, fontsize=12)
+    ax.set_ylabel(label_name, fontsize=10)
     ax.set_xticks(range(len(values)))
     ax.set_xticklabels(list(values.index), rotation=45, fontsize=9)
     ax.grid(axis='y', linestyle='--', alpha=0.7)
-    # Annotate each bar with its value.
     for bar in bars:
         height = bar.get_height()
         ax.annotate(f'{height:.2f}',
                     xy=(bar.get_x() + bar.get_width() / 2, height),
-                    xytext=(0, 3),  # 3 points vertical offset
+                    xytext=(0, 3),
                     textcoords="offset points",
                     ha='center', va='bottom', fontsize=8)
 
-# --- PDF Report Generation Functions ---
+# --- Updated PDF Report Generation ---
 
-def create_pdf_report(summary_df, args):
-    """
-    Create a multi-page PDF report with a cover, summary text, and category pages.
-    Each category page shows (from top to bottom):
-      1. A large title (the category name),
-      2. A graph comparing the relevant metric,
-      3. A small explanation of the metric.
-    """
+def create_pdf_report(summary_df, args, confusion_images):
     model_names = args.models
     comparison_models = "_".join(model_names)
     output_dir = os.path.join(args.output, comparison_models)
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, "comparison_summary.pdf")
 
-    # Define detection categories and assign relevant metrics and explanation text.
-    # Here we assume one metric per category.
-    categories = {
-        "Missed Objects": {
-            "metrics": ["voc_recall"],
-            "explanation": ("This metric measures the detector’s ability to capture all objects. "
-                            "Higher values indicate fewer missed detections.")
-        },
-        "Object Confusion": {
-            "metrics": ["voc_precision"],
-            "explanation": ("This metric indicates how often the detector confuses background or other objects "
-                            "with the target. Higher precision means fewer false positives.")
-        },
-        "Bounding Box Localization Quality": {
-            "metrics": ["AP75"],
-            "explanation": ("This metric assesses the accuracy of the predicted bounding boxes at a strict IoU threshold (0.75). "
-                            "Higher values indicate better localization.")
-        }
-    }
+    categories = [
+        ("Overall Performance", {
+            "metrics": ["AP", "AR", "total_TP", "total_FP"],
+            "explanation": (
+                "AP: The overall area under the precision–recall curve averaged over multiple IoU thresholds "
+                "(from 0.50 to 0.95 in steps of 0.05). "
+                "AR: The average recall over multiple IoU thresholds. "
+                "total_TP: The total number of true positives based on VOC metrics. "
+                "total_FP: The total number of false positives based on VOC metrics."
+            )
+        }),
+        ("Object Confusion", {
+            "metrics": ["confusion_matrix"],
+            "explanation": "Confusion matrix based on ground truth and detection bounding boxes."
+        }),
+        ("BBox Localization", {
+            "metrics": ["AP50", "AP75"],
+            "explanation": (
+                "AP50: Calculated at a fixed IoU threshold of 0.50. "
+                "AP75: Calculated at a stricter IoU threshold of 0.75. "
+                "A gap between AP50 and AP75 can highlight issues with localization accuracy."
+            )
+        }),
+        ("Scale-Specific Performance", {
+            "metrics": ["APsmall", "APmedium", "APlarge", "ARsmall", "ARmedium", "ARlarge"],
+            "explanation": (
+                "AP/AR computed separately for small, medium, and large objects (using area thresholds) "
+                "help identify if your model is struggling with objects of a certain scale."
+            )
+        })
+    ]
     
     with PdfPages(output_file) as pdf:
-        # --- Cover Page ---
+        # Cover Page (unchanged)
         fig_cover = plt.figure(figsize=(8.5, 11))
         plt.axis('off')
         cover_title = "Object Detection Model Comparison"
         subtitle = "Models: " + ", ".join(model_names)
         plt.text(0.5, 0.6, cover_title, fontsize=28, ha='center', va='center')
         plt.text(0.5, 0.5, subtitle, fontsize=20, ha='center', va='center')
-        pdf.savefig(fig_cover, bbox_inches='tight')
+        pdf.savefig(fig_cover, bbox_inches='tight', dpi=600)
         plt.close(fig_cover)
 
-        # --- Summary Text Page ---
+        # Summary Text Page (unchanged)
         fig_summary = plt.figure(figsize=(8.5, 11))
         plt.axis('off')
         summary_lines = []
@@ -178,58 +169,124 @@ def create_pdf_report(summary_df, args):
         summary_text = "\n".join(summary_lines)
         wrapped_text = "\n".join(textwrap.wrap(summary_text, width=90))
         plt.text(0.05, 0.95, wrapped_text, fontsize=10, va='top')
-        pdf.savefig(fig_summary, bbox_inches='tight')
+        pdf.savefig(fig_summary, bbox_inches='tight', dpi=600)
         plt.close(fig_summary)
 
-        # --- Category Pages ---
-        for cat_name, cat_data in categories.items():
-            metric = cat_data["metrics"][0]  # assuming one metric per category
+        # Category Pages (updated to use composite images)
+        for cat_name, cat_data in categories:
+            metrics_list = cat_data["metrics"]
             explanation = cat_data["explanation"]
-
-            # Create a figure with 3 vertical sections:
-            # Row 0: Title (Large)
-            # Row 1: Graph
-            # Row 2: Explanation (Small)
+            
+            # Create a new figure for the full page.
             fig = plt.figure(figsize=(8.5, 11))
-            gs = gridspec.GridSpec(nrows=3, ncols=1, height_ratios=[0.2, 0.55, 0.25], figure=fig)
+            gs_outer = gridspec.GridSpec(nrows=3, ncols=1, height_ratios=[0.15, 0.70, 0.15], figure=fig)
             
-            # Title section
-            ax_title = fig.add_subplot(gs[0])
+            # Title Section
+            ax_title = fig.add_subplot(gs_outer[0])
             ax_title.axis('off')
-            ax_title.text(0.5, 0.5, cat_name, fontsize=15, ha='center', va='center')
+            ax_title.text(0.5, 0.5, cat_name, fontsize=16, ha='center', va='center')
             
-            # Graph section
-            ax_graph = fig.add_subplot(gs[1])
-            plot_metric_bar(summary_df, metric, ax_graph)
+            # Composite Graphs Section:
+            # We'll create a separate figure in memory that combines all subplots.
+            n_metrics = len(metrics_list)
+            # Decide grid shape (here, 2 columns if more than one metric)
+            ncols = 2 if n_metrics > 1 else 1
+            nrows = math.ceil(n_metrics / ncols)
             
-            # Explanation section
-            ax_expl = fig.add_subplot(gs[2])
+            fig_comp, axes = plt.subplots(nrows, ncols, figsize=(8, 4 * nrows))
+            # Make axes iterable
+            if n_metrics == 1:
+                axes = [axes]
+            elif nrows == 1:
+                axes = list(axes)
+            else:
+                axes = axes.flatten()
+            
+            for idx, metric in enumerate(metrics_list):
+                ax = axes[idx]
+                if metric == "confusion_matrix":
+                    ax.set_title("Confusion Matrix", fontsize=12)
+                    # Create a subgrid for confusion matrix images for each model.
+                    n_models = len(model_names)
+                    sub_ncols = n_models
+                    sub_nrows = 1
+                    # Create a temporary figure for the subplots
+                    fig_sub, sub_axes = plt.subplots(sub_nrows, sub_ncols, figsize=(4 * n_models, 4))
+                    if n_models == 1:
+                        sub_axes = [sub_axes]
+                    else:
+                        sub_axes = list(sub_axes)
+                    for j, model_name in enumerate(model_names):
+                        sub_ax = sub_axes[j]
+                        img_path = confusion_images.get(model_name, None)
+                        if img_path and os.path.exists(img_path):
+                            img = plt.imread(img_path)
+                            sub_ax.imshow(img)
+                            sub_ax.set_title(model_name, fontsize=10)
+                        else:
+                            sub_ax.text(0.5, 0.5, f"No image for {model_name}", ha='center', va='center')
+                        sub_ax.axis('off')
+                    # Save the subfigure into an in-memory buffer and load as an image.
+                    buf = io.BytesIO()
+                    fig_sub.tight_layout()
+                    fig_sub.savefig(buf, format='png', dpi=600)
+                    buf.seek(0)
+                    sub_img = plt.imread(buf)
+                    buf.close()
+                    plt.close(fig_sub)
+                    # Display the combined confusion matrix image in the main composite subplot.
+                    ax.imshow(sub_img)
+                    ax.axis('off')
+                else:
+                    # For numeric metrics, plot the bar chart.
+                    plot_metric_bar(summary_df, metric, ax)
+            
+            # Remove any unused subplots.
+            for j in range(idx + 1, len(axes)):
+                axes[j].axis('off')
+            
+            # Save the composite graphs figure into an in-memory buffer.
+            buf_comp = io.BytesIO()
+            fig_comp.tight_layout()
+            fig_comp.savefig(buf_comp, format='png', dpi=300)
+            buf_comp.seek(0)
+            comp_img = plt.imread(buf_comp)
+            buf_comp.close()
+            plt.close(fig_comp)
+            
+            # In the outer figure, add the composite image.
+            ax_graph = fig.add_subplot(gs_outer[1])
+            ax_graph.imshow(comp_img)
+            ax_graph.axis('off')
+            
+            # Explanation Section
+            ax_expl = fig.add_subplot(gs_outer[2])
             ax_expl.axis('off')
             wrapped_explanation = "\n".join(textwrap.wrap(explanation, width=90))
             ax_expl.text(0.5, 0.5, wrapped_explanation, fontsize=10, ha='center', va='center')
             
-            pdf.savefig(fig, bbox_inches='tight')
+            pdf.savefig(fig, bbox_inches='tight', dpi=600)
             plt.close(fig)
 
-        # --- Conclusion Page ---
+        # Conclusion Page (unchanged)
         fig_concl = plt.figure(figsize=(8.5, 11))
         plt.axis('off')
         conclusion = (
             "### Conclusion\n\n"
             "The comparison shows that each model exhibits distinct trade-offs. For instance, while one model "
             "may achieve high recall (fewer missed objects), another may offer higher precision (fewer false positives).\n\n"
-            "Furthermore, differences in bounding box localization (AP75) highlight variations in the models' "
-            "ability to precisely localize objects. Additional domain-specific testing is recommended to determine "
-            "the optimal model for a given application."
+            "Furthermore, differences in bounding box localization (e.g. differences between AP50 and AP75) highlight variations in the models' "
+            "ability to precisely localize objects. Scale-specific performance metrics also help identify potential weaknesses on objects of different sizes. "
+            "Additional domain-specific testing is recommended to determine the optimal model for a given application."
         )
         wrapped_conclusion = "\n".join(textwrap.wrap(conclusion, width=90))
         plt.text(0.05, 0.95, wrapped_conclusion, fontsize=12, va='top')
-        pdf.savefig(fig_concl, bbox_inches='tight')
+        pdf.savefig(fig_concl, bbox_inches='tight', dpi=600)
         plt.close(fig_concl)
     
     print(f"Comparison summary saved to {output_file}")
 
-# --- Main Script ---
+# --- Main Script (unchanged) ---
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -255,9 +312,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    weights_names = args.models  # e.g. ['Albatross-v0.3', 'detr-v0.1']
-    
-    # Load metrics for each model weight.
+    weights_names = args.models
     metrics_list = []
     for weights in weights_names:
         try:
@@ -266,12 +321,9 @@ def main():
         except Exception as e:
             print(f"Error loading metrics for {weights}: {e}")
             return
-    
-    # Create a summary table DataFrame.
     summary_df = create_summary_table(metrics_list, weights_names)
-    
-    # Create and save the PDF report.
-    create_pdf_report(summary_df, args)
+    confusion_images = {m['weights_name']: m.get("confusion_matrix", None) for m in metrics_list}
+    create_pdf_report(summary_df, args, confusion_images)
 
 if __name__ == "__main__":
     main()
