@@ -18,8 +18,8 @@ def setup_logger(log_file="pipeline.log"):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Object Detection Evaluation Pipeline")
-    parser.add_argument("--model", type=str, default="yolo11", help="Model name (e.g., 'yolo11', 'detr')")
-    parser.add_argument("--weights", type=str, default="Albatross-v0.3.pt", help="Model weights file")
+    parser.add_argument("--model", type=str, default="yolo9", help="Model name (e.g., 'yolo11', 'yolo9', 'detr')")
+    parser.add_argument("--weights", type=str, default="Albatross-v0.2.pt", help="Model weights file (e.g., 'Albatross-v0.3.pt', 'Albatross-v0.2.pt')")
     parser.add_argument("--test_set", type=str, default="Azimut-Haifa-Dataset-v0.4", help="Test-set version to evaluate")
     parser.add_argument("--img_size", type=int, default=[1088, 1920], help="Input image size for the detector")
     return parser.parse_args()
@@ -29,7 +29,7 @@ def load_config(config_path="object_detection/config.yaml"):
         return yaml.safe_load(f)
 
 def select_detector(model_name):
-    if model_name.lower() == "yolo11":
+    if model_name.lower() in ["yolo11", "yolo9"]:
         return yolo_detector.YOLODetector(model_name)
     # elif model_name.lower() == "detr":
     #     return detr_detector.DETRDetector(model_name)
@@ -96,6 +96,7 @@ def main():
     metrics.save_voc_metrics_csv(voc_metrics, os.path.join(superclass_output, "voc_results.csv"))
     plot_utils.plot_all(voc_metrics, superclass_output, superclass_dir_pred, superclass_labels_dir, config, is_superclass=True)
     logging.info(f"Plotted metrics for {superclass_output}")
+
 if __name__ == "__main__":
     setup_logger()
     main()

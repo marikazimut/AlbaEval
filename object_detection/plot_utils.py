@@ -263,17 +263,21 @@ def plot_bb_per_classes(dict_bbs_per_class,
     plt.savefig(os.path.join(output_dir, f"bb_per_class_{box_type}.png"))
     return plt
 
-def plot_bb_distributions(output_dir, groundtruth_bbs, det_boxes):
+def plot_bb_distributions(output_dir, groundtruth_bbs, det_boxes, index_to_name):
 
     # # Leave only the annotations of 'x' class
     # groundtruth_bbs = [bb for bb in groundtruth_bbs if bb.get_class_id() == '16']
     # det_boxes = [bb for bb in det_boxes if bb.get_class_id() == '16']
 
     dict_gt = BoundingBox.get_amount_bounding_box_all_classes(groundtruth_bbs, reverse=True)
-    plot_bb_per_classes(dict_gt, horizontally=False, rotation=0, show=False, extra_title=' (groundtruths)', output_dir=output_dir, box_type="gts")
+    if index_to_name:
+        dict_gt = {index_to_name[class_id]: count for class_id, count in dict_gt.items()}
+    plot_bb_per_classes(dict_gt, horizontally=False, rotation=90, show=False, extra_title=' (groundtruths)', output_dir=output_dir, box_type="gts")
     clases_gt = [b.get_class_id() for b in groundtruth_bbs]
     dict_det = BoundingBox.get_amount_bounding_box_all_classes(det_boxes, reverse=True)
-    plot_bb_per_classes(dict_det, horizontally=False, rotation=0, show=False, extra_title=' (detections)', output_dir=output_dir, box_type="dets")
+    if index_to_name:
+        dict_det = {index_to_name[class_id]: count for class_id, count in dict_det.items()}
+    plot_bb_per_classes(dict_det, horizontally=False, rotation=90, show=False, extra_title=' (detections)', output_dir=output_dir, box_type="dets")
 
 def plot_confusion_matrix(output_dir, groundtruth_bbs, det_boxes, num_classes, class_names=None):
     """
@@ -374,7 +378,12 @@ def get_groundtruth_and_detections(dir_gts, dir_dets):
 
     return groundtruth_bbs, det_boxes
 
-def plot_all(voc_metrics, output_dir, dir_dets, dir_gts, config, is_superclass=False):
+def plot_all(voc_metrics, output_dir, dir_dets, dir_gts, config, is_superclass=False,idx_to_name=True):
+
+    index_to_name = None
+    if idx_to_name:
+        index_to_name = {str(v): k for k, v in config["name_to_index"].items()}
+        voc_metrics["per_class"] = {index_to_name[key]: value for key, value in voc_metrics["per_class"].items()}
     
     plot_precision_recall_curve(voc_metrics.get("per_class"), mAP=voc_metrics.get("mAP"), savePath=output_dir, showGraphic=False)
 
@@ -390,7 +399,11 @@ def plot_all(voc_metrics, output_dir, dir_dets, dir_gts, config, is_superclass=F
         num_classes = len(config["mappings"].keys())
         class_names = [config["name_to_index"][key] for key in config["mappings"].keys()]
 
+    if idx_to_name:
+        class_names = [index_to_name[str(class_id)] for class_id in class_names]
+
+
     plot_confusion_matrix(output_dir, groundtruth_bbs, det_boxes, num_classes, class_names)
 
-    plot_bb_distributions(output_dir, groundtruth_bbs, det_boxes)
+    plot_bb_distributions(output_dir, groundtruth_bbs, det_boxes, index_to_name)
 
