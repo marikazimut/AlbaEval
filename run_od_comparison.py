@@ -1,9 +1,10 @@
-
 import argparse
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+import textwrap
+import matplotlib.gridspec as gridspec
 
 # --- Helper Functions ---
 
@@ -11,7 +12,6 @@ def find_model_subfolder(weights_name, outputs_root):
     """
     Search inside each model folder in outputs_root for a folder that contains
     the specified weights_name and its 'subclass' subfolder.
-    
     Returns: (subclass_path, model_type)
     """
     for model_type in os.listdir(outputs_root):
@@ -27,7 +27,6 @@ def load_model_metrics(weights_name, outputs_root):
     """
     Given a weights_name and the outputs_root, find the corresponding subclass folder
     and load the two CSV files: results.csv and voc_results.csv.
-    
     Returns: a dict of metrics (including keys from results.csv and aggregated voc_results).
     """
     subclass_path, model_type = find_model_subfolder(weights_name, outputs_root)
@@ -48,9 +47,6 @@ def load_model_metrics(weights_name, outputs_root):
     if os.path.exists(voc_csv):
         try:
             df_voc = pd.read_csv(voc_csv)
-            # We assume the voc_results.csv contains columns named 'precision' and 'recall'
-            # It might contain one row per class; we compute the mean value.
-            # (If your CSV has a different structure, adjust accordingly.)
             df_voc['precision'] = pd.to_numeric(df_voc['precision'], errors='coerce')
             df_voc['recall'] = pd.to_numeric(df_voc['recall'], errors='coerce')
             voc_precision = df_voc['precision'].mean()
@@ -66,7 +62,7 @@ def load_model_metrics(weights_name, outputs_root):
     if voc_recall is not None:
         metrics['voc_recall'] = voc_recall
 
-    # Include additional info (e.g., model type) if needed.
+    # Include additional info (e.g., model type)
     metrics['model_type'] = model_type
     metrics['weights_name'] = weights_name
     return metrics
@@ -76,11 +72,10 @@ def create_summary_table(metrics_list, model_names):
     Given a list of metrics dictionaries (one per model) and their corresponding names,
     produce a summary DataFrame where rows are metric names and columns are models.
     """
-    # Combine all keys; then for each model fill in the value (or NaN if missing)
     all_keys = set()
     for m in metrics_list:
         all_keys.update(m.keys())
-    # Remove non-numeric keys if desired
+    # Remove non-numeric keys if desired.
     all_keys.discard('model_type')
     all_keys.discard('weights_name')
     
@@ -90,71 +85,41 @@ def create_summary_table(metrics_list, model_names):
         for m in metrics_list:
             summary[key].append(m.get(key, float('nan')))
     summary_df = pd.DataFrame(summary, index=model_names)
-    return summary_df.T  # so that rows = metrics, columns = models
+    return summary_df.T  # rows = metrics, columns = models
 
-def plot_metric_comparison(summary_df, metric_name, ax):
+def plot_metric_bar(summary_df, metric_name, ax):
     """
     Plot a bar chart comparing a specific metric across models.
+    Adjusts fonts and spacing so labels do not overlap.
     """
     if metric_name not in summary_df.index:
-        ax.text(0.5, 0.5, f"Metric {metric_name} not found", ha='center')
+        ax.text(0.5, 0.5, f"Metric {metric_name} not found", ha='center', fontsize=10)
         return
     values = summary_df.loc[metric_name]
-    values.plot(kind='bar', ax=ax, color='skyblue', edgecolor='black')
-    ax.set_title(f"Comparison of {metric_name}")
-    ax.set_ylabel(metric_name)
-    ax.set_xlabel("Models")
+    bars = ax.bar(range(len(values)), values, color='steelblue', edgecolor='black')
+    ax.set_title(metric_name, fontsize=12)
+    ax.set_ylabel(metric_name, fontsize=10)
+    ax.set_xticks(range(len(values)))
+    ax.set_xticklabels(list(values.index), rotation=45, fontsize=9)
     ax.grid(axis='y', linestyle='--', alpha=0.7)
+    # Annotate each bar with its value.
+    for bar in bars:
+        height = bar.get_height()
+        ax.annotate(f'{height:.2f}',
+                    xy=(bar.get_x() + bar.get_width() / 2, height),
+                    xytext=(0, 3),  # 3 points vertical offset
+                    textcoords="offset points",
+                    ha='center', va='bottom', fontsize=8)
 
-def generate_graphs(summary_df, model_names, pdf):
-    """
-    Generate and save plots for a predefined list of key metrics.
-    """
-    # Define the list of key metrics to plot.
-    # Adjust as necessary to include the metrics you consider most informative.
-    key_metrics = ['AP', 'AP50', 'AP75', 'voc_precision', 'voc_recall']
-    for metric in key_metrics:
-        fig, ax = plt.subplots(figsize=(6, 4))
-        plot_metric_comparison(summary_df, metric, ax)
-        # Add a brief explanation (customize as desired)
-        explanation = ""
-        if metric == 'AP':
-            explanation = "Higher AP indicates overall better detection performance."
-        elif metric == 'AP50':
-            explanation = "AP@0.5 reflects detection performance with relaxed IoU threshold."
-        elif metric == 'AP75':
-            explanation = "AP@0.75 shows localization quality at a stricter IoU threshold."
-        elif metric == 'voc_precision':
-            explanation = "Higher VOC precision suggests fewer false positives."
-        elif metric == 'voc_recall':
-            explanation = "Higher VOC recall suggests fewer missed objects."
-        ax.text(0.5, -0.15, explanation, transform=ax.transAxes,
-                fontsize=9, ha='center', va='top')
-        pdf.savefig(fig, bbox_inches='tight')
-        plt.close(fig)
-
-def generate_summary_text(summary_df, model_names):
-    """
-    Create a text summary (in markdown format) based on the summary table.
-    """
-    lines = []
-    lines.append("## Model Comparison Summary")
-    lines.append("### Models Compared: " + ", ".join(model_names))
-    lines.append("#### Key Metrics Overview:")
-    lines.append(summary_df.to_markdown())
-    # Sample observations (customize these observations as needed)
-    if 'AP' in summary_df.index and not summary_df.loc['AP'].isnull().all():
-        best_AP = summary_df.loc['AP'].idxmax()
-        lines.append(f"* **Observation:** {best_AP} has the highest overall AP, indicating the best overall detection performance.")
-    if 'voc_recall' in summary_df.index and not summary_df.loc['voc_recall'].isnull().all():
-        best_recall = summary_df.loc['voc_recall'].idxmax()
-        lines.append(f"* **Observation:** {best_recall} exhibits the highest VOC recall, suggesting it misses fewer objects.")
-    summary_text = "\n".join(lines)
-    return summary_text
+# --- PDF Report Generation Functions ---
 
 def create_pdf_report(summary_df, args):
     """
-    Create a multi-page PDF report with a cover, summary text, graphs, and conclusion.
+    Create a multi-page PDF report with a cover, summary text, and category pages.
+    Each category page shows (from top to bottom):
+      1. A large title (the category name),
+      2. A graph comparing the relevant metric,
+      3. A small explanation of the metric.
     """
     model_names = args.models
     comparison_models = "_".join(model_names)
@@ -162,42 +127,107 @@ def create_pdf_report(summary_df, args):
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, "comparison_summary.pdf")
 
+    # Define detection categories and assign relevant metrics and explanation text.
+    # Here we assume one metric per category.
+    categories = {
+        "Missed Objects": {
+            "metrics": ["voc_recall"],
+            "explanation": ("This metric measures the detector’s ability to capture all objects. "
+                            "Higher values indicate fewer missed detections.")
+        },
+        "Object Confusion": {
+            "metrics": ["voc_precision"],
+            "explanation": ("This metric indicates how often the detector confuses background or other objects "
+                            "with the target. Higher precision means fewer false positives.")
+        },
+        "Bounding Box Localization Quality": {
+            "metrics": ["AP75"],
+            "explanation": ("This metric assesses the accuracy of the predicted bounding boxes at a strict IoU threshold (0.75). "
+                            "Higher values indicate better localization.")
+        }
+    }
+    
     with PdfPages(output_file) as pdf:
-        # Cover page
-        fig, ax = plt.subplots(figsize=(8.5, 11))
-        ax.axis('off')
-        title = "Model Comparison Summary"
-        subtitle = " vs. ".join(model_names)
-        cover_text = f"{title}\n\nModels Compared:\n{subtitle}"
-        ax.text(0.5, 0.5, cover_text, transform=ax.transAxes, fontsize=20,
-                ha='center', va='center')
-        pdf.savefig(fig)
-        plt.close(fig)
-        
-        # Summary text page
-        fig, ax = plt.subplots(figsize=(8.5, 11))
-        ax.axis('off')
-        summary_text = generate_summary_text(summary_df, model_names)
-        ax.text(0.05, 0.95, summary_text, transform=ax.transAxes,
-                fontsize=10, va='top')
-        pdf.savefig(fig)
-        plt.close(fig)
-        
-        # Graphs for each metric
-        generate_graphs(summary_df, model_names, pdf)
-        
-        # Conclusion page
-        fig, ax = plt.subplots(figsize=(8.5, 11))
-        ax.axis('off')
-        conclusion_text = ("### Conclusion\n\n"
-                           "Based on the comparison, each model shows its own trade-offs. "
-                           "For example, while one model might achieve the highest AP and AP50, "
-                           "another may excel in VOC recall. Further analysis and additional tests "
-                           "could help in selecting the optimal model for a given scenario.")
-        ax.text(0.05, 0.95, conclusion_text, transform=ax.transAxes,
-                fontsize=10, va='top')
-        pdf.savefig(fig)
-        plt.close(fig)
+        # --- Cover Page ---
+        fig_cover = plt.figure(figsize=(8.5, 11))
+        plt.axis('off')
+        cover_title = "Object Detection Model Comparison"
+        subtitle = "Models: " + ", ".join(model_names)
+        plt.text(0.5, 0.6, cover_title, fontsize=28, ha='center', va='center')
+        plt.text(0.5, 0.5, subtitle, fontsize=20, ha='center', va='center')
+        pdf.savefig(fig_cover, bbox_inches='tight')
+        plt.close(fig_cover)
+
+        # --- Summary Text Page ---
+        fig_summary = plt.figure(figsize=(8.5, 11))
+        plt.axis('off')
+        summary_lines = []
+        summary_lines.append("## Model Comparison Summary")
+        summary_lines.append("")
+        summary_lines.append("**Models Compared:** " + ", ".join(model_names))
+        summary_lines.append("")
+        summary_lines.append("### Key Metrics (Overall)")
+        summary_lines.append("")
+        summary_lines.append(summary_df.to_markdown())
+        if 'AP' in summary_df.index and not summary_df.loc['AP'].isnull().all():
+            best_AP = summary_df.loc['AP'].idxmax()
+            summary_lines.append(f"\n* **Observation:** {best_AP} achieved the highest overall AP, indicating superior detection performance.")
+        if 'voc_recall' in summary_df.index and not summary_df.loc['voc_recall'].isnull().all():
+            best_recall = summary_df.loc['voc_recall'].idxmax()
+            summary_lines.append(f"* **Observation:** {best_recall} exhibits the highest recall, meaning it misses fewer objects.")
+        summary_text = "\n".join(summary_lines)
+        wrapped_text = "\n".join(textwrap.wrap(summary_text, width=90))
+        plt.text(0.05, 0.95, wrapped_text, fontsize=10, va='top')
+        pdf.savefig(fig_summary, bbox_inches='tight')
+        plt.close(fig_summary)
+
+        # --- Category Pages ---
+        for cat_name, cat_data in categories.items():
+            metric = cat_data["metrics"][0]  # assuming one metric per category
+            explanation = cat_data["explanation"]
+
+            # Create a figure with 3 vertical sections:
+            # Row 0: Title (Large)
+            # Row 1: Graph
+            # Row 2: Explanation (Small)
+            fig = plt.figure(figsize=(8.5, 11))
+            gs = gridspec.GridSpec(nrows=3, ncols=1, height_ratios=[0.2, 0.55, 0.25], figure=fig)
+            
+            # Title section
+            ax_title = fig.add_subplot(gs[0])
+            ax_title.axis('off')
+            ax_title.text(0.5, 0.5, cat_name, fontsize=15, ha='center', va='center')
+            
+            # Graph section
+            ax_graph = fig.add_subplot(gs[1])
+            plot_metric_bar(summary_df, metric, ax_graph)
+            
+            # Explanation section
+            ax_expl = fig.add_subplot(gs[2])
+            ax_expl.axis('off')
+            wrapped_explanation = "\n".join(textwrap.wrap(explanation, width=90))
+            ax_expl.text(0.5, 0.5, wrapped_explanation, fontsize=10, ha='center', va='center')
+            
+            pdf.savefig(fig, bbox_inches='tight')
+            plt.close(fig)
+
+        # --- Conclusion Page ---
+        fig_concl = plt.figure(figsize=(8.5, 11))
+        plt.axis('off')
+        conclusion = (
+            "### Conclusion\n\n"
+            "The comparison shows that each model exhibits distinct trade-offs. For instance, while one model "
+            "may achieve high recall (fewer missed objects), another may offer higher precision (fewer false positives).\n\n"
+            "Furthermore, differences in bounding box localization (AP75) highlight variations in the models' "
+            "ability to precisely localize objects. Additional domain-specific testing is recommended to determine "
+            "the optimal model for a given application."
+        )
+        wrapped_conclusion = "\n".join(textwrap.wrap(conclusion, width=90))
+        plt.text(0.05, 0.95, wrapped_conclusion, fontsize=12, va='top')
+        pdf.savefig(fig_concl, bbox_inches='tight')
+        plt.close(fig_concl)
+    
+    print(f"Comparison summary saved to {output_file}")
 
 # --- Main Script ---
 
@@ -208,7 +238,7 @@ def parse_args():
     parser.add_argument(
         '--models', 
         nargs='+', 
-        default=['Albatross-v0.3', 'Albatross-v0.2'], 
+        default=['Albatross-v0.3', 'Albatross-v0.2'],
         help="List of model names (e.g., Albatross-v0.3 detr-v0.1)"
     )
     parser.add_argument(
@@ -219,13 +249,13 @@ def parse_args():
     parser.add_argument(
         '--output',
         default=os.path.join("object_detection", "comparison_reports"),
-        help="Output PDF file name for the summary report."
+        help="Output directory for the summary report."
     )
     return parser.parse_args()
 
 def main():
     args = parse_args()
-    weights_names = args.models  # e.g., ['Albatross-v0.3', 'detr-v0.1']
+    weights_names = args.models  # e.g. ['Albatross-v0.3', 'detr-v0.1']
     
     # Load metrics for each model weight.
     metrics_list = []
@@ -242,7 +272,6 @@ def main():
     
     # Create and save the PDF report.
     create_pdf_report(summary_df, args)
-    print(f"Comparison summary saved to {args.output}")
 
 if __name__ == "__main__":
     main()
