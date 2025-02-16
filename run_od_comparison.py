@@ -41,6 +41,8 @@ def load_model_metrics(weights_name, outputs_root):
             df_voc['recall'] = pd.to_numeric(df_voc['recall'], errors='coerce')
             voc_precision = df_voc['precision'].mean()
             voc_recall = df_voc['recall'].mean()
+            voc_tp = df_voc['total TP'].sum()
+            voc_fp = df_voc['total FP'].sum()
         except Exception as e:
             print(f"Warning: Failed to load/parse {voc_csv}: {e}")
             voc_precision, voc_recall = None, None
@@ -51,6 +53,10 @@ def load_model_metrics(weights_name, outputs_root):
         metrics['voc_precision'] = voc_precision
     if voc_recall is not None:
         metrics['voc_recall'] = voc_recall
+    if voc_tp is not None:
+        metrics['voc_tp'] = voc_tp
+    if voc_fp is not None:
+        metrics['voc_fp'] = voc_fp
 
     confusion_img = os.path.join(subclass_path, "confusion_matrix.png")
     if os.path.exists(confusion_img):
@@ -79,6 +85,10 @@ def plot_metric_bar(summary_df, metric_name, ax):
     label_name = metric_name
     if metric_name=="AR":
         metric_name = "AR100"
+    if metric_name=="TP_num":
+        metric_name = "voc_tp"
+    if metric_name=="FP_num":
+        metric_name = "voc_fp"
     if metric_name not in summary_df.index:
         ax.text(0.5, 0.5, f"Metric {metric_name} not found", ha='center', fontsize=10)
         return
@@ -108,13 +118,13 @@ def create_pdf_report(summary_df, args, confusion_images):
 
     categories = [
         ("Overall Performance", {
-            "metrics": ["AP", "AR", "total_TP", "total_FP"],
+            "metrics": ["AP", "AR", "TP_num", "FP_num"],
             "explanation": (
                 "AP: The overall area under the precision–recall curve averaged over multiple IoU thresholds "
                 "(from 0.50 to 0.95 in steps of 0.05). "
                 "AR: The average recall over multiple IoU thresholds. "
-                "total_TP: The total number of true positives based on VOC metrics. "
-                "total_FP: The total number of false positives based on VOC metrics."
+                "TP_num: The total number of true positives based on VOC metrics. "
+                "FP_num: The total number of false positives based on VOC metrics."
             )
         }),
         ("Object Confusion", {
