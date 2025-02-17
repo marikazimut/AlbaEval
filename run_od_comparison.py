@@ -9,34 +9,37 @@ import textwrap
 import matplotlib.gridspec as gridspec
 import numpy as np
 
-# --- Helper Functions (updated) ---
+# --- Helper Functions ---
 
-def find_model_subfolder(weights_name, outputs_root):
+def find_model_folder(weights_name, outputs_root, folder_type):
+    """
+    Locate the folder (subclass or superclass) for a given weights_name.
+    """
     for model_type in os.listdir(outputs_root):
         model_type_path = os.path.join(outputs_root, model_type)
         if not os.path.isdir(model_type_path):
             continue
-        candidate = os.path.join(model_type_path, weights_name, "subclass")
+        candidate = os.path.join(model_type_path, weights_name, folder_type)
         if os.path.exists(candidate):
             return candidate, model_type
-    raise FileNotFoundError(f"Could not find metrics for weights '{weights_name}' in {outputs_root}")
+    raise FileNotFoundError(f"Could not find metrics for weights '{weights_name}' with folder type '{folder_type}' in {outputs_root}")
 
-def load_model_metrics(weights_name, outputs_root):
-    subclass_path, model_type = find_model_subfolder(weights_name, outputs_root)
+def load_metrics(weights_name, outputs_root, folder_type):
+    """
+    Load metrics from the given folder type (subclass or superclass).
+    """
+    folder_path, model_type = find_model_folder(weights_name, outputs_root, folder_type)
     
-    results_csv = os.path.join(subclass_path, "results.csv")
-    voc_csv = os.path.join(subclass_path, "voc_results.csv")
+    results_csv = os.path.join(folder_path, "results.csv")
+    voc_csv = os.path.join(folder_path, "voc_results.csv")
     
     if not os.path.exists(results_csv):
         raise FileNotFoundError(f"Results CSV not found at {results_csv}")
     
     df_results = pd.read_csv(results_csv)
-    metrics = {}
-    for col in df_results.columns:
-        metrics[col] = df_results.iloc[0][col]
+    metrics = {col: df_results.iloc[0][col] for col in df_results.columns}
     
-    voc_tp = None
-    voc_fp = None
+    # Try to load VOC metrics if available
     if os.path.exists(voc_csv):
         try:
             df_voc = pd.read_csv(voc_csv)
@@ -46,36 +49,29 @@ def load_model_metrics(weights_name, outputs_root):
             voc_recall = df_voc['recall'].mean()
             voc_tp = df_voc['total TP'].sum()
             voc_fp = df_voc['total FP'].sum()
+            metrics['voc_precision'] = voc_precision
+            metrics['voc_recall'] = voc_recall
+            metrics['voc_tp'] = voc_tp
+            metrics['voc_fp'] = voc_fp
         except Exception as e:
             print(f"Warning: Failed to load/parse {voc_csv}: {e}")
-            voc_precision, voc_recall = None, None
-    else:
-        voc_precision, voc_recall = None, None
-
-    if voc_precision is not None:
-        metrics['voc_precision'] = voc_precision
-    if voc_recall is not None:
-        metrics['voc_recall'] = voc_recall
-    if voc_tp is not None:
-        metrics['voc_tp'] = voc_tp
-    if voc_fp is not None:
-        metrics['voc_fp'] = voc_fp
-
-    confusion_img = os.path.join(subclass_path, "confusion_matrix.png")
+    
+    confusion_img = os.path.join(folder_path, "confusion_matrix.png")
     if os.path.exists(confusion_img):
         metrics["confusion_matrix"] = confusion_img
 
     metrics['model_type'] = model_type
     metrics['weights_name'] = weights_name
+    metrics['folder_type'] = folder_type  # indicate whether these are subclass or superclass metrics
     return metrics
 
 def create_summary_table(metrics_list, model_names):
     all_keys = set()
     for m in metrics_list:
         all_keys.update(m.keys())
-    all_keys.discard('model_type')
-    all_keys.discard('weights_name')
-    all_keys.discard('confusion_matrix')  # handled separately
+    # Remove keys that we do not want to show in the table
+    for key in ['model_type', 'weights_name', 'folder_type', 'confusion_matrix']:
+        all_keys.discard(key)
     summary = {}
     for key in sorted(all_keys):
         summary[key] = []
@@ -114,7 +110,7 @@ def plot_metric_bar(ax, summary_df, metric_name, model_names, model_colors):
     values = summary_df.loc[metric_key]
     for i, model in enumerate(model_names):
         val = values.get(model, float('nan'))
-        bar = ax.bar(i, val, color=model_colors.get(model, "gray"), edgecolor='black')
+        ax.bar(i, val, color=model_colors.get(model, "gray"), edgecolor='black')
         ax.annotate(f'{val:.2f}', xy=(i, val),
                     xytext=(0, 3),
                     textcoords="offset points",
@@ -128,7 +124,6 @@ def plot_metric_bar(ax, summary_df, metric_name, model_names, model_colors):
 def plot_grouped_bars(ax, summary_df, metrics, group_labels, title, ylabel, model_names, model_colors):
     """
     Plot a grouped bar chart.
-    
     - metrics: list of metric keys (e.g., ["AP", "AR"] or ["voc_tp", "voc_fp"])
     - group_labels: list of labels for each group (e.g., ["AP", "AR"] or ["TP", "FP"])
     """
@@ -141,11 +136,9 @@ def plot_grouped_bars(ax, summary_df, metrics, group_labels, title, ylabel, mode
         offsets = indices - 0.4 + (i + 0.5) * bar_width
         values = []
         for metric in metrics:
-            # Use the metric key directly; the summary dataframe must contain it.
-            if metric in summary_df.index:
-                values.append(summary_df.loc[metric][model])
-            else:
-                values.append(np.nan)
+            if metric == 'AR':
+                metric = 'AR100'
+            values.append(summary_df.loc[metric][model] if metric in summary_df.index else np.nan)
         ax.bar(offsets, values, width=bar_width, color=model_colors.get(model, "gray"), edgecolor='black', label=model)
         for j, v in enumerate(values):
             ax.annotate(f'{v:.2f}', xy=(offsets[j], v),
@@ -157,11 +150,94 @@ def plot_grouped_bars(ax, summary_df, metrics, group_labels, title, ylabel, mode
     ax.set_xticks(indices)
     ax.set_xticklabels(group_labels, fontsize=9)
     ax.grid(axis='y', linestyle='--', alpha=0.7)
-    ax.legend(fontsize=8)
+    # ax.legend(fontsize=8)
+    # Increase y-axis limit by 10% . Compute the maximum value from the values we just plotted:
+    max_val = np.nanmax([summary_df.loc[m][model] if m in summary_df.index else 0 for m in metrics for model in model_names])
+    ax.set_ylim(0, max_val * 1.1)
+
+
+def plot_composite_for_category(cat_name, summary_df, model_names, model_colors, confusion_images):
+    """
+    Create a composite figure (returned as an image array) for the given category.
+    This function follows the same logic as before, but is meant to be used for one set
+    of metrics (either subclass or superclass).
+    """
+    fig_comp = None
+    if cat_name == "Overall Performance":
+        fig_comp, (ax_group1, ax_group2) = plt.subplots(1, 2, figsize=(6, 3))
+        plot_grouped_bars(ax_group1, summary_df, metrics=["AP", "AR"],
+                          group_labels=["AP", "AR"],
+                          title="Precision-Recall Performance", ylabel="Score",
+                          model_names=model_names, model_colors=model_colors)
+        plot_grouped_bars(ax_group2, summary_df, metrics=["voc_tp", "voc_fp"],
+                          group_labels=["TP", "FP"],
+                          title="Detection Counts", ylabel="Count",
+                          model_names=model_names, model_colors=model_colors)
+    elif cat_name == "BBox Localization":
+        fig_comp, ax_comp = plt.subplots(figsize=(6, 3))
+        plot_grouped_bars(ax_comp, summary_df, metrics=["AP50", "AP75"],
+                          group_labels=["AP50", "AP75"],
+                          title="BBox Localization", ylabel="Score",
+                          model_names=model_names, model_colors=model_colors)
+    elif cat_name == "Scale-Specific Performance":
+        fig_comp, (ax_ap, ax_ar) = plt.subplots(1, 2, figsize=(6, 3))
+        plot_grouped_bars(ax_ap, summary_df, metrics=["APsmall", "APmedium", "APlarge"],
+                          group_labels=["Small", "Medium", "Large"],
+                          title="AP by Scale", ylabel="AP",
+                          model_names=model_names, model_colors=model_colors)
+        plot_grouped_bars(ax_ar, summary_df, metrics=["ARsmall", "ARmedium", "ARlarge"],
+                          group_labels=["Small", "Medium", "Large"],
+                          title="AR by Scale", ylabel="AR",
+                          model_names=model_names, model_colors=model_colors)
+    else:  # Object Confusion
+        n_metrics = ["confusion_matrix"]
+        fig_comp, axes = plt.subplots(1, len(n_metrics), figsize=(6, 3))
+        if len(n_metrics) == 1:
+            axes = [axes]
+        for idx, metric in enumerate(n_metrics):
+            ax = axes[idx]
+            if metric == "confusion_matrix":
+                ax.set_title("Confusion Matrix", fontsize=12)
+                # Create subplots for each model's confusion matrix.
+                n_models = len(model_names)
+                fig_sub, sub_axes = plt.subplots(1, n_models, figsize=(3 * n_models, 3))
+                if n_models == 1:
+                    sub_axes = [sub_axes]
+                for j, model_name in enumerate(model_names):
+                    sub_ax = sub_axes[j]
+                    img_path = confusion_images.get(model_name, None)
+                    if img_path and os.path.exists(img_path):
+                        img = plt.imread(img_path)
+                        sub_ax.imshow(img)
+                        sub_ax.set_title(model_name, fontsize=10)
+                    else:
+                        sub_ax.text(0.5, 0.5, f"No image for {model_name}", ha='center', va='center')
+                    sub_ax.axis('off')
+                buf = io.BytesIO()
+                fig_sub.tight_layout()
+                fig_sub.savefig(buf, format='png', dpi=300)
+                buf.seek(0)
+                sub_img = plt.imread(buf)
+                buf.close()
+                plt.close(fig_sub)
+                ax.imshow(sub_img)
+                ax.axis('off')
+    # Return the image array of the composite figure.
+    buf_comp = io.BytesIO()
+    if fig_comp is not None:
+        fig_comp.tight_layout()
+        fig_comp.savefig(buf_comp, format='png', dpi=150)
+        buf_comp.seek(0)
+        comp_img = plt.imread(buf_comp)
+        buf_comp.close()
+        plt.close(fig_comp)
+        return comp_img
+    else:
+        return None
 
 # --- Updated PDF Report Generation ---
 
-def create_pdf_report(summary_df, args, confusion_images, model_colors):
+def create_pdf_report(sub_summary_df, super_summary_df, args, sub_confusion_images, super_confusion_images, model_colors):
     model_names = args.models
     comparison_models = "_".join(model_names)
     output_dir = os.path.join(args.output, comparison_models)
@@ -169,32 +245,28 @@ def create_pdf_report(summary_df, args, confusion_images, model_colors):
     output_file = os.path.join(output_dir, "comparison_summary.pdf")
 
     # Categories definition.
-    # For Overall Performance we will merge AP/AR and TP/FP together.
     categories = [
         ("Overall Performance", {
             "explanation": (
-                "AP: The overall area under the precision–recall curve averaged over multiple IoU thresholds "
-                "(from 0.50 to 0.95 in steps of 0.05). AR: The average recall over multiple IoU thresholds. "
-                "TP: The total number of true positives based on VOC metrics. FP: The total number of false positives based on VOC metrics."
+                "AP: The area under the precision–recall curve averaged over multiple IoU threshs "
+                "(0.50 to 0.95). ;AR: The average recall over multiple IoU thresholds. "
+                ";TP: The total number of true positives based on VOC metrics. ;FP: The total number of false positives based on VOC metrics."
             )
         }),
         ("Object Confusion", {
-            "metrics": ["confusion_matrix"],
             "explanation": "Confusion matrix based on ground truth and detection bounding boxes."
         }),
         ("BBox Localization", {
-            "metrics": ["AP50", "AP75"],
             "explanation": (
                 "AP50: Calculated at a fixed IoU threshold of 0.50. "
-                "AP75: Calculated at a stricter IoU threshold of 0.75. "
-                "A gap between AP50 and AP75 can highlight issues with localization accuracy."
+                ";AP75: Calculated at a stricter IoU threshold of 0.75. "
+                ";A gap between AP50 and AP75 can highlight issues with localization accuracy."
             )
         }),
         ("Scale-Specific Performance", {
-            "metrics": ["APsmall", "APmedium", "APlarge", "ARsmall", "ARmedium", "ARlarge"],
             "explanation": (
-                "AP/AR computed separately for small, medium, and large objects (using area thresholds) "
-                "help identify if your model is struggling with objects of a certain scale."
+                "AP/AR computed separately for small, medium, and large objects (using area threshs). "
+                ";Helps identify if your model is struggling with objects of a certain scale."
             )
         })
     ]
@@ -218,127 +290,69 @@ def create_pdf_report(summary_df, args, confusion_images, model_colors):
         summary_lines.append("")
         summary_lines.append("**Models Compared:** " + ", ".join(model_names))
         summary_lines.append("")
-        summary_lines.append("### Key Metrics (Overall)")
+        summary_lines.append("### Key Metrics (Overall, Subclass)")
         summary_lines.append("")
-        summary_lines.append(summary_df.to_markdown())
-        if 'AP' in summary_df.index and not summary_df.loc['AP'].isnull().all():
-            best_AP = summary_df.loc['AP'].idxmax()
-            summary_lines.append(f"\n* **Observation:** {best_AP} achieved the highest overall AP, indicating superior detection performance.")
-        if 'voc_recall' in summary_df.index and not summary_df.loc['voc_recall'].isnull().all():
-            best_recall = summary_df.loc['voc_recall'].idxmax()
-            summary_lines.append(f"* **Observation:** {best_recall} exhibits the highest recall, meaning it misses fewer objects.")
+        summary_lines.append(sub_summary_df.to_markdown())
+        if 'AP' in sub_summary_df.index and not sub_summary_df.loc['AP'].isnull().all():
+            best_AP = sub_summary_df.loc['AP'].idxmax()
+            summary_lines.append(f"\n* **Observation:** {best_AP} achieved the highest overall AP (subclass), indicating superior detection performance.")
+        if 'voc_recall' in sub_summary_df.index and not sub_summary_df.loc['voc_recall'].isnull().all():
+            best_recall = sub_summary_df.loc['voc_recall'].idxmax()
+            summary_lines.append(f"* **Observation:** {best_recall} exhibits the highest recall (subclass), meaning it misses fewer objects.")
         summary_text = "\n".join(summary_lines)
         wrapped_text = "\n".join(textwrap.wrap(summary_text, width=90))
         plt.text(0.05, 0.95, wrapped_text, fontsize=10, va='top')
         pdf.savefig(fig_summary, bbox_inches='tight', dpi=600)
         plt.close(fig_summary)
 
-        # Category Pages
+        # Category Pages (each now has subclass on top and superclass on bottom)
         for cat_name, cat_data in categories:
             explanation = cat_data["explanation"]
             
-            # Create a new outer figure for the full page.
+            # Create an outer figure divided into 4 vertical sections:
+            # 1: Title, 2: Subclass composite graph, 3: Superclass composite graph, 4: Explanation
             fig = plt.figure(figsize=(8.5, 11))
-            gs_outer = gridspec.GridSpec(nrows=3, ncols=1, height_ratios=[0.15, 0.70, 0.15], figure=fig)
+            gs_outer = gridspec.GridSpec(nrows=4, ncols=1, height_ratios=[0.15, 0.35, 0.35, 0.15], figure=fig)
             
             # Title Section
             ax_title = fig.add_subplot(gs_outer[0])
             ax_title.axis('off')
             ax_title.text(0.5, 0.5, cat_name, fontsize=16, ha='center', va='center')
             
-            # Composite Graphs Section:
-            fig_comp = None
-            if cat_name == "Overall Performance":
-                # Merge AP and AR in one chart and TP and FP in another, side by side.
-                fig_comp, (ax_group1, ax_group2) = plt.subplots(1, 2, figsize=(12, 4))
-                # Group 1: AP and AR
-                plot_grouped_bars(ax_group1, summary_df, metrics=["AP", "AR"],
-                                  group_labels=["AP", "AR"],
-                                  title="Precision-Recall Performance", ylabel="Score",
-                                  model_names=model_names, model_colors=model_colors)
-                # Group 2: TP and FP (using voc_tp and voc_fp keys)
-                plot_grouped_bars(ax_group2, summary_df, metrics=["voc_tp", "voc_fp"],
-                                  group_labels=["TP", "FP"],
-                                  title="Detection Counts", ylabel="Count",
-                                  model_names=model_names, model_colors=model_colors)
-            elif cat_name == "BBox Localization":
-                # Merge AP50 and AP75 into one grouped bar chart.
-                fig_comp, ax_comp = plt.subplots(figsize=(8, 4))
-                plot_grouped_bars(ax_comp, summary_df, metrics=["AP50", "AP75"],
-                                  group_labels=["AP50", "AP75"],
-                                  title="BBox Localization", ylabel="Score",
-                                  model_names=model_names, model_colors=model_colors)
-            elif cat_name == "Scale-Specific Performance":
-                # Create two charts: one for AP and one for AR by scale.
-                fig_comp, (ax_ap, ax_ar) = plt.subplots(1, 2, figsize=(12, 4))
-                plot_grouped_bars(ax_ap, summary_df, metrics=["APsmall", "APmedium", "APlarge"],
-                                  group_labels=["Small", "Medium", "Large"],
-                                  title="AP by Scale", ylabel="AP",
-                                  model_names=model_names, model_colors=model_colors)
-                plot_grouped_bars(ax_ar, summary_df, metrics=["ARsmall", "ARmedium", "ARlarge"],
-                                  group_labels=["Small", "Medium", "Large"],
-                                  title="AR by Scale", ylabel="AR",
-                                  model_names=model_names, model_colors=model_colors)
-            else:
-                # For Object Confusion, plot the confusion matrices.
-                n_metrics = cat_data.get("metrics", [])
-                fig_comp, axes = plt.subplots(1, len(n_metrics), figsize=(8, 4))
-                if len(n_metrics) == 1:
-                    axes = [axes]
-                for idx, metric in enumerate(n_metrics):
-                    ax = axes[idx]
-                    if metric == "confusion_matrix":
-                        ax.set_title("Confusion Matrix", fontsize=12)
-                        # Create subplots for each model's confusion matrix.
-                        n_models = len(model_names)
-                        fig_sub, sub_axes = plt.subplots(1, n_models, figsize=(4 * n_models, 4))
-                        if n_models == 1:
-                            sub_axes = [sub_axes]
-                        for j, model_name in enumerate(model_names):
-                            sub_ax = sub_axes[j]
-                            img_path = confusion_images.get(model_name, None)
-                            if img_path and os.path.exists(img_path):
-                                img = plt.imread(img_path)
-                                sub_ax.imshow(img)
-                                sub_ax.set_title(model_name, fontsize=10)
-                            else:
-                                sub_ax.text(0.5, 0.5, f"No image for {model_name}", ha='center', va='center')
-                            sub_ax.axis('off')
-                        buf = io.BytesIO()
-                        fig_sub.tight_layout()
-                        fig_sub.savefig(buf, format='png', dpi=600)
-                        buf.seek(0)
-                        sub_img = plt.imread(buf)
-                        buf.close()
-                        plt.close(fig_sub)
-                        ax.imshow(sub_img)
-                        ax.axis('off')
-            # Save the composite graphs figure into an in-memory buffer.
-            buf_comp = io.BytesIO()
-            if fig_comp is not None:
-                fig_comp.tight_layout()
-                fig_comp.savefig(buf_comp, format='png', dpi=300)
-                buf_comp.seek(0)
-                comp_img = plt.imread(buf_comp)
-                buf_comp.close()
-                plt.close(fig_comp)
-            else:
-                comp_img = None
+            # Subclass Composite Graph Section
+            ax_sub = fig.add_subplot(gs_outer[1])
+            sub_img = plot_composite_for_category(cat_name, sub_summary_df, model_names, model_colors, sub_confusion_images)
+            if sub_img is not None:
+                ax_sub.imshow(sub_img)
+            ax_sub.axis('off')
+            ax_sub.set_title("Subclass", fontsize=12)
+            
+            # Superclass Composite Graph Section
+            ax_super = fig.add_subplot(gs_outer[2])
+            super_img = plot_composite_for_category(cat_name, super_summary_df, model_names, model_colors, super_confusion_images)
+            if super_img is not None:
+                ax_super.imshow(super_img)
+            ax_super.axis('off')
+            ax_super.set_title("Superclass", fontsize=12)
 
-            # Place the composite image in the outer figure.
-            ax_graph = fig.add_subplot(gs_outer[1])
-            if comp_img is not None:
-                ax_graph.imshow(comp_img)
-            ax_graph.axis('off')
-            
+            if cat_name != "Object Confusion":
+                # Add a common legend at the bottom center of the page.
+                handles = [plt.Line2D([0], [0], marker='s', color='w', markerfacecolor=model_colors[m],
+                                        markersize=10, label=m) for m in model_names]
+                ax_sub.legend(handles=handles, loc='lower center', ncol=len(model_names), bbox_to_anchor=(0.5, 1.1))
+
             # Explanation Section
-            ax_expl = fig.add_subplot(gs_outer[2])
+            ax_expl = fig.add_subplot(gs_outer[3])
             ax_expl.axis('off')
-            wrapped_explanation = "\n".join(textwrap.wrap(explanation, width=90))
+            lines = [line.strip() for line in explanation.split(";")]
+            wrapped_explanation = "\n".join(lines)
             ax_expl.text(0.5, 0.5, wrapped_explanation, fontsize=10, ha='center', va='center')
-            
+            # wrapped_explanation = "\n".join(textwrap.wrap(explanation, width=90))
+            # ax_expl.text(0.5, 0.5, wrapped_explanation, fontsize=10, ha='center', va='center')
+
             pdf.savefig(fig, bbox_inches='tight', dpi=600)
             plt.close(fig)
+
 
         # Conclusion Page
         fig_concl = plt.figure(figsize=(8.5, 11))
@@ -358,7 +372,7 @@ def create_pdf_report(summary_df, args, confusion_images, model_colors):
     
     print(f"Comparison summary saved to {output_file}")
 
-# --- Main Script (unchanged except for color mapping) ---
+# --- Main Script ---
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -385,18 +399,28 @@ def parse_args():
 def main():
     args = parse_args()
     weights_names = args.models
-    metrics_list = []
+    subclass_metrics_list = []
+    superclass_metrics_list = []
     for weights in weights_names:
         try:
-            metrics = load_model_metrics(weights, args.outputs_root)
-            metrics_list.append(metrics)
+            sub_metrics = load_metrics(weights, args.outputs_root, "subclass")
+            super_metrics = load_metrics(weights, args.outputs_root, "superclass")
+            subclass_metrics_list.append(sub_metrics)
+            superclass_metrics_list.append(super_metrics)
         except Exception as e:
             print(f"Error loading metrics for {weights}: {e}")
             return
-    summary_df = create_summary_table(metrics_list, weights_names)
-    confusion_images = {m['weights_name']: m.get("confusion_matrix", None) for m in metrics_list}
+    
+    # Create separate summary tables for subclass and superclass metrics.
+    subclass_summary_df = create_summary_table(subclass_metrics_list, weights_names)
+    superclass_summary_df = create_summary_table(superclass_metrics_list, weights_names)
+    
+    # Build confusion image dictionaries for each.
+    sub_confusion_images = {m['weights_name']: m.get("confusion_matrix", None) for m in subclass_metrics_list}
+    super_confusion_images = {m['weights_name']: m.get("confusion_matrix", None) for m in superclass_metrics_list}
     model_colors = get_model_colors(args.models)
-    create_pdf_report(summary_df, args, confusion_images, model_colors)
+    
+    create_pdf_report(subclass_summary_df, superclass_summary_df, args, sub_confusion_images, super_confusion_images, model_colors)
 
 if __name__ == "__main__":
     main()
