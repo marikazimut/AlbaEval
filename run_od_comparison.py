@@ -153,7 +153,7 @@ def plot_grouped_bars(ax, summary_df, metrics, group_labels, title, ylabel, mode
     # ax.legend(fontsize=8)
     # Increase y-axis limit by 10% . Compute the maximum value from the values we just plotted:
     max_val = np.nanmax([summary_df.loc[m][model] if m in summary_df.index else 0 for m in metrics for model in model_names])
-    ax.set_ylim(0, max_val * 1.1)
+    ax.set_ylim(0, max_val * 1.2)
 
 
 def plot_composite_for_category(cat_name, summary_df, model_names, model_colors, confusion_images):
@@ -189,9 +189,34 @@ def plot_composite_for_category(cat_name, summary_df, model_names, model_colors,
                           group_labels=["Small", "Medium", "Large"],
                           title="AR by Scale", ylabel="AR",
                           model_names=model_names, model_colors=model_colors)
-    else:  # Object Confusion
+    elif cat_name == "Runtime Performance" and "inference_speed" in summary_df.index:
+        # Create two subplots: one for inference time (ms) and one for FPS.
+        fig_comp, (ax_time, ax_fps) = plt.subplots(1, 2, figsize=(6, 3))
+        # Plot Inference Time (ms)
+        plot_metric_bar(ax_time, summary_df, "inference_speed", model_names, model_colors)
+        ax_time.set_title("Inference Time (ms)", fontsize=12)
+        # Compute FPS = 1000 / inference_speed and plot manually.
+        fps_values = {}
+        for model in model_names:
+            speed = summary_df.loc["inference_speed"].get(model, float('nan'))
+            fps_values[model] = 1000 / speed if speed and speed != 0 else float('nan')
+        ax_fps.set_title("FPS", fontsize=12)
+        for i, model in enumerate(model_names):
+            v = fps_values[model]
+            ax_fps.bar(i, v, color=model_colors.get(model, "gray"), edgecolor="black")
+            ax_fps.annotate(f'{v:.2f}', xy=(i, v), xytext=(0, 3),
+                            textcoords="offset points", ha='center', va='bottom', fontsize=8)
+        ax_fps.set_xticks(range(len(model_names)))
+        ax_fps.set_xticklabels(model_names, rotation=45, fontsize=9)
+        ax_fps.set_ylabel("FPS", fontsize=10)
+        ax_fps.grid(axis='y', linestyle='--', alpha=0.7)
+        max_val = summary_df.loc["inference_speed"].max()
+        ax_time.set_ylim(0, max_val * 1.2)
+        max_val = max(fps_values.values())
+        ax_fps.set_ylim(0, max_val * 1.2)
+    elif cat_name == "Object Confusion":  # Object Confusion
         n_metrics = ["confusion_matrix"]
-        fig_comp, axes = plt.subplots(1, len(n_metrics), figsize=(6, 3))
+        fig_comp, axes = plt.subplots(1, len(n_metrics), figsize=(10, 5)) #figsize=(6, 3))
         if len(n_metrics) == 1:
             axes = [axes]
         for idx, metric in enumerate(n_metrics):
@@ -215,7 +240,7 @@ def plot_composite_for_category(cat_name, summary_df, model_names, model_colors,
                     sub_ax.axis('off')
                 buf = io.BytesIO()
                 fig_sub.tight_layout()
-                fig_sub.savefig(buf, format='png', dpi=300)
+                fig_sub.savefig(buf, format='png', dpi=600)
                 buf.seek(0)
                 sub_img = plt.imread(buf)
                 buf.close()
@@ -226,7 +251,7 @@ def plot_composite_for_category(cat_name, summary_df, model_names, model_colors,
     buf_comp = io.BytesIO()
     if fig_comp is not None:
         fig_comp.tight_layout()
-        fig_comp.savefig(buf_comp, format='png', dpi=150)
+        fig_comp.savefig(buf_comp, format='png', dpi=600)
         buf_comp.seek(0)
         comp_img = plt.imread(buf_comp)
         buf_comp.close()
@@ -268,6 +293,12 @@ def create_pdf_report(sub_summary_df, super_summary_df, args, sub_confusion_imag
                 "AP/AR computed separately for small, medium, and large objects (using area threshs). "
                 ";Helps identify if your model is struggling with objects of a certain scale."
             )
+        }),
+        ("Runtime Performance", {  # <-- New Category
+            "explanation": (
+                "Inference Time: The average inference time (in ms) measured on the test set. ;"
+                "FPS: Frames per second, computed as 1000 divided by the inference time."
+            )
         })
     ]
     
@@ -275,35 +306,14 @@ def create_pdf_report(sub_summary_df, super_summary_df, args, sub_confusion_imag
         # Cover Page
         fig_cover = plt.figure(figsize=(8.5, 11))
         plt.axis('off')
-        cover_title = "Object Detection Model Comparison"
+        cover_title_1 = "Object Detection"
+        cover_title_2 = "Model Comparison"
         subtitle = "Models: " + ", ".join(model_names)
-        plt.text(0.5, 0.6, cover_title, fontsize=28, ha='center', va='center')
+        plt.text(0.5, 0.7, cover_title_1, fontsize=28, ha='center', va='center')
+        plt.text(0.5, 0.6, cover_title_2, fontsize=28, ha='center', va='center')
         plt.text(0.5, 0.5, subtitle, fontsize=20, ha='center', va='center')
         pdf.savefig(fig_cover, bbox_inches='tight', dpi=600)
         plt.close(fig_cover)
-
-        # Summary Text Page
-        fig_summary = plt.figure(figsize=(8.5, 11))
-        plt.axis('off')
-        summary_lines = []
-        summary_lines.append("## Model Comparison Summary")
-        summary_lines.append("")
-        summary_lines.append("**Models Compared:** " + ", ".join(model_names))
-        summary_lines.append("")
-        summary_lines.append("### Key Metrics (Overall, Subclass)")
-        summary_lines.append("")
-        summary_lines.append(sub_summary_df.to_markdown())
-        if 'AP' in sub_summary_df.index and not sub_summary_df.loc['AP'].isnull().all():
-            best_AP = sub_summary_df.loc['AP'].idxmax()
-            summary_lines.append(f"\n* **Observation:** {best_AP} achieved the highest overall AP (subclass), indicating superior detection performance.")
-        if 'voc_recall' in sub_summary_df.index and not sub_summary_df.loc['voc_recall'].isnull().all():
-            best_recall = sub_summary_df.loc['voc_recall'].idxmax()
-            summary_lines.append(f"* **Observation:** {best_recall} exhibits the highest recall (subclass), meaning it misses fewer objects.")
-        summary_text = "\n".join(summary_lines)
-        wrapped_text = "\n".join(textwrap.wrap(summary_text, width=90))
-        plt.text(0.05, 0.95, wrapped_text, fontsize=10, va='top')
-        pdf.savefig(fig_summary, bbox_inches='tight', dpi=600)
-        plt.close(fig_summary)
 
         # Category Pages (each now has subclass on top and superclass on bottom)
         for cat_name, cat_data in categories:
@@ -312,7 +322,10 @@ def create_pdf_report(sub_summary_df, super_summary_df, args, sub_confusion_imag
             # Create an outer figure divided into 4 vertical sections:
             # 1: Title, 2: Subclass composite graph, 3: Superclass composite graph, 4: Explanation
             fig = plt.figure(figsize=(8.5, 11))
-            gs_outer = gridspec.GridSpec(nrows=4, ncols=1, height_ratios=[0.15, 0.35, 0.35, 0.15], figure=fig)
+            if cat_name != "Runtime Performance":
+                gs_outer = gridspec.GridSpec(nrows=4, ncols=1, height_ratios=[0.15, 0.35, 0.35, 0.15], figure=fig)
+            else:
+                gs_outer = gridspec.GridSpec(nrows=3, ncols=1, height_ratios=[0.15, 0.35, 0.15], figure=fig)
             
             # Title Section
             ax_title = fig.add_subplot(gs_outer[0])
@@ -325,15 +338,20 @@ def create_pdf_report(sub_summary_df, super_summary_df, args, sub_confusion_imag
             if sub_img is not None:
                 ax_sub.imshow(sub_img)
             ax_sub.axis('off')
-            ax_sub.set_title("Subclass", fontsize=12)
+            if cat_name != "Runtime Performance":
+                ax_sub.set_title("Subclass", fontsize=12)
             
+            if cat_name != "Runtime Performance":
             # Superclass Composite Graph Section
-            ax_super = fig.add_subplot(gs_outer[2])
-            super_img = plot_composite_for_category(cat_name, super_summary_df, model_names, model_colors, super_confusion_images)
-            if super_img is not None:
-                ax_super.imshow(super_img)
-            ax_super.axis('off')
-            ax_super.set_title("Superclass", fontsize=12)
+                ax_super = fig.add_subplot(gs_outer[2])
+                super_img = plot_composite_for_category(cat_name, super_summary_df, model_names, model_colors, super_confusion_images)
+                if super_img is not None:
+                    ax_super.imshow(super_img)
+                ax_super.axis('off')
+                ax_super.set_title("Superclass", fontsize=12)
+                i = 3
+            else:
+                i = 2
 
             if cat_name != "Object Confusion":
                 # Add a common legend at the bottom center of the page.
@@ -342,7 +360,7 @@ def create_pdf_report(sub_summary_df, super_summary_df, args, sub_confusion_imag
                 ax_sub.legend(handles=handles, loc='lower center', ncol=len(model_names), bbox_to_anchor=(0.5, 1.1))
 
             # Explanation Section
-            ax_expl = fig.add_subplot(gs_outer[3])
+            ax_expl = fig.add_subplot(gs_outer[i])
             ax_expl.axis('off')
             lines = [line.strip() for line in explanation.split(";")]
             wrapped_explanation = "\n".join(lines)
@@ -353,22 +371,28 @@ def create_pdf_report(sub_summary_df, super_summary_df, args, sub_confusion_imag
             pdf.savefig(fig, bbox_inches='tight', dpi=600)
             plt.close(fig)
 
-
-        # Conclusion Page
-        fig_concl = plt.figure(figsize=(8.5, 11))
-        plt.axis('off')
-        conclusion = (
-            "### Conclusion\n\n"
-            "The comparison shows that each model exhibits distinct trade-offs. For instance, while one model "
-            "may achieve high recall (fewer missed objects), another may offer higher precision (fewer false positives).\n\n"
-            "Furthermore, differences in bounding box localization (e.g. differences between AP50 and AP75) highlight variations in the models' "
-            "ability to precisely localize objects. Scale-specific performance metrics also help identify potential weaknesses on objects of different sizes. "
-            "Additional domain-specific testing is recommended to determine the optimal model for a given application."
+        # Summary Table Page with filtered rows and rounded values
+        fig_summary, ax_summary = plt.subplots(figsize=(8.5, 11))
+        ax_summary.axis('tight')
+        ax_summary.axis('off')
+        # Filter and round the DataFrame:
+        filtered_summary_df = sub_summary_df.drop(index=["voc_precision", "voc_recall"]).round(3)
+        # Create a table from the filtered and rounded DataFrame
+        table = ax_summary.table(
+            cellText=filtered_summary_df.values,
+            rowLabels=filtered_summary_df.index,
+            colLabels=filtered_summary_df.columns,
+            cellLoc='center',
+            loc='center'
         )
-        wrapped_conclusion = "\n".join(textwrap.wrap(conclusion, width=90))
-        plt.text(0.05, 0.95, wrapped_conclusion, fontsize=12, va='top')
-        pdf.savefig(fig_concl, bbox_inches='tight', dpi=600)
-        plt.close(fig_concl)
+        # Adjust table style and font sizes
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(0.6, 1.2)
+        # Optionally, add a title above the table
+        plt.title("Model Comparison Summary", fontsize=16, y=0.9)
+        pdf.savefig(fig_summary, bbox_inches='tight', dpi=600)
+        plt.close(fig_summary)
     
     print(f"Comparison summary saved to {output_file}")
 
