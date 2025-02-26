@@ -41,13 +41,15 @@ mappings:
     "Military": [
         "Saar-4.5",
         "Saar-5",
+        "Saar-6",
         "Submarine",
         "Military"
     ]
     "SWC": [
         "Buoy",
         "Sailing",
-        "SWC"
+        "SWC",
+        "BWC"
     ]
     "Support": [
         "Cruise",

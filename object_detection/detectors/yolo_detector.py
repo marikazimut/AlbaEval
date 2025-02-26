@@ -18,27 +18,32 @@ class YOLODetector:
 
         predictions = []
         inference_times = []
+        corrupted_images = []
 
         # Iterate over test images and run inference.
         for image_file in sorted(os.listdir(images_dir)):
             image_path = os.path.join(images_dir, image_file)
             
-            start_time = time.time()
-            results = model.predict(image_path, imgsz=img_size, verbose=False)  # pseudocode: adjust as needed
-            end_time = time.time()
-            inference_times.append(end_time - start_time)
+            try:
+                start_time = time.time()
+                results = model.predict(image_path, conf=0.05, imgsz=img_size, verbose=False)  # pseudocode: adjust as needed
+                end_time = time.time()
+                inference_times.append(end_time - start_time)
             
-            # Convert the results to a universal format (e.g., a dict with keys: filename, boxes, labels, scores)
-            # (Assume results[0].boxes exists; adjust if necessary.)
-            results_boxes = results[0].boxes  
-            universal_results = self._convert_to_universal(results_boxes, image_file)
-            predictions.append(universal_results)
+                # Convert the results to a universal format (e.g., a dict with keys: filename, boxes, labels, scores)
+                # (Assume results[0].boxes exists; adjust if necessary.)
+                results_boxes = results[0].boxes  
+                universal_results = self._convert_to_universal(results_boxes, image_file)
+                predictions.append(universal_results)
+            except:
+                # print(f"Error running inference for {image_file}: corrupted image")
+                corrupted_images.append(image_file)
+                continue
         
         # Compute average inference time (in seconds per image)
         avg_inference_speed = sum(inference_times) / len(inference_times) if inference_times else 0
-        return predictions, avg_inference_speed  # return both predictions and inference speed
-    
-    
+        return predictions, avg_inference_speed, corrupted_images  # return both predictions and inference speed
+
     def _convert_to_universal(self, results, image_file):
         # Convert results from YOLO to your universal format.
         # This is where you translate between YOLO's output and your “Slack” format.

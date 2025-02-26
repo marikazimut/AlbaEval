@@ -4,6 +4,7 @@ import yaml
 import pathlib
 from object_detection import metrics, plot_utils, mapping
 import logging
+import shutil
 
 # Dynamically import detector modules
 from object_detection.detectors import yolo_detector #, detr_detector  # (detr_detector might be used later)
@@ -19,9 +20,9 @@ def setup_logger(log_file="pipeline.log"):
 def parse_args():
     parser = argparse.ArgumentParser(description="Object Detection Evaluation Pipeline")
     parser.add_argument("--model", type=str, default="yolo11", help="Model name (e.g., 'yolo11', 'yolo9', 'detr')")
-    parser.add_argument("--weights", type=str, default="Albatross-v0.3.pt", help="Model weights file (e.g., 'Albatross-v0.3.pt', 'Albatross-v0.2.pt')")
-    parser.add_argument("--test_set", type=str, default="Azimut-Haifa-Dataset-v0.4", help="Test-set version to evaluate")
-    parser.add_argument("--img_size", type=int, default=[1088, 1920], help="Input image size for the detector")
+    parser.add_argument("--weights", type=str, default="Albatross-v0.4.pt", help="Model weights file (e.g., 'Albatross-v0.3.pt', 'Albatross-v0.2.pt','Albatross-v0.4.pt', 'Albatross-v0.4-2.pt')")
+    parser.add_argument("--test_set", type=str, default="Albatross-Dataset-v0.4-test", help="Test-set version to evaluate (e.g., 'Azimut-Haifa-Dataset-v0.4')")
+    parser.add_argument("--img_size", type=int, default=[1088, 1920], help="Input image size for the detector") 
     return parser.parse_args()
 
 def load_config(config_path="object_detection/config.yaml"):
@@ -57,10 +58,21 @@ def main():
 
     # Run detector on test-set images
     # (The detector is expected to return predictions in a universal format: list of dicts or similar)
-    predictions, avg_inference_speed = detector.run_inference(test_images_dir, args.img_size, model_weights_dir, args.weights)
+    predictions, avg_inference_speed, corrupted_images = detector.run_inference(test_images_dir, args.img_size, model_weights_dir, args.weights)
     logging.info(f"Finished running inference on {test_images_dir}")
 
-    # Save the raw predictions (text files) for subclasses
+    if len(corrupted_images) > 0:
+        logging.warning(f"Corrupted images: {corrupted_images}")
+        print(f"Removing corrupted images from test-set to corrupted folder")
+        corrupted_dir = os.path.join("object_detection", "test_sets", "corrupted", args.test_set)
+        os.makedirs(corrupted_dir, exist_ok=True)
+        for image in corrupted_images:
+            image_extension = os.path.splitext(image)[1]
+            label_name = image.replace(image_extension, ".txt")
+            shutil.move(os.path.join(test_images_dir, image), os.path.join(corrupted_dir, image))
+            shutil.move(os.path.join(test_labels_dir, label_name), os.path.join(corrupted_dir, label_name))
+            print(f"Corrupted image removed: {image}")
+
     detector.save_predictions(predictions, subclass_dir_pred)
     logging.info(f"Saved predictions to {subclass_dir_pred}")
     # avg_inference_speed = 0.0

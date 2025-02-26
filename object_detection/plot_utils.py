@@ -327,7 +327,7 @@ def plot_confusion_matrix(output_dir, groundtruth_bbs, det_boxes, num_classes, c
                 detections.append([det._x, det._y, det._x2, det._y2, det._confidence, int(det._class_id)])
             detections = torch.tensor(detections)
         else:
-            detections = None
+            detections = torch.empty((0, 6))
 
         # Update the confusion matrix for this image.
         cm.process_batch(detections, labels)
