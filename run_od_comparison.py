@@ -405,7 +405,7 @@ def parse_args():
     parser.add_argument(
         '--models', 
         nargs='+', 
-        default=['Albatross-v0.3', 'Albatross-v0.2'],
+        default=['Albatross-v0.3', 'Albatross-v0.4'],
         help="List of model names (e.g., Albatross-v0.3 detr-v0.1)"
     )
     parser.add_argument(
