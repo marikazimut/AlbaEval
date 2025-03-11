@@ -163,12 +163,12 @@ def main():
     detector = select_detector(args.model)
     
     subtests = ['test-AZIMUTHAIFA', 'test-VTS', 'test-YUVELPTZ', 'test-YUVELRGB', 'test-YUVELTHERMAL']
-    # for subtest in subtests:
-    #     process_subtest(subtest, args, config, detector)
+    for subtest in subtests:
+        process_subtest(subtest, args, config, detector)
 
-    # # get combined metrics
-    # combine_predictions(args, subtests)
-    # combine_gt_labels_and_images(args, subtests)
+    # get combined metrics
+    combine_predictions(args, subtests)
+    combine_gt_labels_and_images(args, subtests)
     process_subtest("COMBINED", args, config, detector, is_combined=True)
 
 if __name__ == "__main__":
