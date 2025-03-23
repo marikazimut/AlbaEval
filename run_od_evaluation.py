@@ -7,7 +7,7 @@ import logging
 import shutil
 
 # Dynamically import detector modules
-from object_detection.detectors import yolo_detector #, detr_detector  # (detr_detector might be used later)
+from object_detection.detectors import yolo_detector, yoloe_detector #, detr_detector  # (detr_detector might be used later)
 
 def setup_logger(log_file="pipeline.log"):
     """Set up logging configuration."""
@@ -19,9 +19,9 @@ def setup_logger(log_file="pipeline.log"):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Object Detection Evaluation Pipeline")
-    parser.add_argument("--model", type=str, default="yolo11", help="Model name (e.g., 'yolo11', 'yolo9', 'detr')")
-    parser.add_argument("--weights", type=str, default="Albatross-v0.4.pt", help="Model weights file (e.g., 'Albatross-v0.3.pt', 'Albatross-v0.2.pt','Albatross-v0.4.pt', 'Albatross-v0.4-2.pt')")
-    parser.add_argument("--test_set", type=str, default="Albatross-Dataset-v0.4-test", help="Test-set version to evaluate (e.g., 'Azimut-Haifa-Dataset-v0.4')")
+    parser.add_argument("--model", type=str, default="yoloe-11m", help="Model name (e.g., 'yolo11', 'yolo9', 'yoloe-11m', 'detr')")
+    parser.add_argument("--weights", type=str, default="yoloe-11m-seg.pt", help="Model weights file (e.g., 'Albatross-v0.3.pt', 'Albatross-v0.2.pt','Albatross-v0.4.pt', 'Albatross-v0.4-2.pt', 'yoloe-11m-seg.pt')")
+    parser.add_argument("--test_set", type=str, default="yoloe-test", help="Test-set version to evaluate (e.g., 'Azimut-Haifa-Dataset-v0.4', 'Albatross-Dataset-v0.4-test')")
     parser.add_argument("--img_size", type=int, default=[1088, 1920], help="Input image size for the detector") 
     return parser.parse_args()
 
@@ -32,6 +32,8 @@ def load_config(config_path="object_detection/config.yaml"):
 def select_detector(model_name):
     if model_name.lower() in ["yolo11", "yolo9"]:
         return yolo_detector.YOLODetector(model_name)
+    elif model_name.lower() == "yoloe-11m":
+        return yoloe_detector.YOLOEDetector(model_name)
     # elif model_name.lower() == "detr":
     #     return detr_detector.DETRDetector(model_name)
     else:
@@ -41,8 +43,9 @@ def main():
     args = parse_args()
     config = load_config()
     
-    for weights in ["Albatross-v0.3.pt", "Albatross-v0.4.pt"]:
-        
+    # for weights in ["Albatross-v0.3.pt", "Albatross-v0.4.pt"]:
+    for weights in ["yoloe-11m-seg.pt"]:
+
         args.weights = weights
 
         # Choose the right detector
@@ -83,11 +86,11 @@ def main():
 
         # Compute evaluation metrics and graphs for subclass outputs.
         logging.info(f"Computing detection metrics for {subclass_dir_pred}")
-        metrics_results = metrics.compute_detection_metrics(subclass_dir_pred, test_labels_dir, args.img_size, avg_inference_speed=avg_inference_speed)
+        metrics_results, cm = metrics.compute_detection_metrics(subclass_dir_pred, test_labels_dir, args.img_size, config, avg_inference_speed=avg_inference_speed)
         metrics.save_metrics_csv(metrics_results, os.path.join(subclass_output, "results.csv"))
         voc_metrics = metrics.compute_pascalvoc_metrics(subclass_dir_pred, test_labels_dir, iou_threshold=0.5)
         metrics.save_voc_metrics_csv(voc_metrics, os.path.join(subclass_output, "voc_results.csv"))
-        plot_utils.plot_all(voc_metrics, subclass_output, subclass_dir_pred, test_labels_dir, config)
+        plot_utils.plot_all(voc_metrics, cm, subclass_output, subclass_dir_pred, test_labels_dir, config)
         logging.info(f"Plotted metrics for {subclass_output}")
 
         # Map subclass predictions to superclasses using the mapping module.
@@ -106,11 +109,11 @@ def main():
             print(f"{superclass_labels_dir} already exists. Skipping mapping.")
         # Compute and save metrics/plots for superclass predictions.
         logging.info(f"Computing detection metrics for {superclass_dir_pred}")
-        superclass_metrics = metrics.compute_detection_metrics(superclass_dir_pred, superclass_labels_dir, args.img_size, avg_inference_speed=None, use_superclasses=True)
+        superclass_metrics, cm = metrics.compute_detection_metrics(superclass_dir_pred, superclass_labels_dir, args.img_size, config, avg_inference_speed=None, use_superclasses=True)
         metrics.save_metrics_csv(superclass_metrics, os.path.join(superclass_output, "results.csv"))
         voc_metrics = metrics.compute_pascalvoc_metrics(superclass_dir_pred, superclass_labels_dir, iou_threshold=0.5)
         metrics.save_voc_metrics_csv(voc_metrics, os.path.join(superclass_output, "voc_results.csv"))
-        plot_utils.plot_all(voc_metrics, superclass_output, superclass_dir_pred, superclass_labels_dir, config, is_superclass=True)
+        plot_utils.plot_all(voc_metrics, cm, superclass_output, superclass_dir_pred, superclass_labels_dir, config, is_superclass=True)
         logging.info(f"Plotted metrics for {superclass_output}")
 
 if __name__ == "__main__":

@@ -6,116 +6,12 @@ import torch
 import warnings
 import os
 from pathlib import Path
-from collections import defaultdict
-from sklearn.metrics import confusion_matrix, f1_score
 
 from object_detection.external_libraries.review_object_detection_metrics.src.evaluators.pascal_voc_evaluator import plot_precision_recall_curve, plot_precision_recall_curves
 from object_detection.external_libraries.review_object_detection_metrics.src.utils import converter
 from object_detection.external_libraries.review_object_detection_metrics.src.bounding_box import BoundingBox
 from object_detection.external_libraries.review_object_detection_metrics.src.utils.enumerators import BBType, BBFormat, CoordinatesType
 
-
-# def plot_all(metrics_results, output_dir):
-#     """
-#     Generates various evaluation plots for object detection performance.
-#     """
-
-#     # Ensure output directory exists
-#     os.makedirs(output_dir, exist_ok=True)
-
-#     # --- CONFUSION MATRIX ---
-#     if "confusion_matrix" in metrics_results:
-#         cm = metrics_results["confusion_matrix"]
-#         plt.figure(figsize=(8, 6))
-#         sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
-#         plt.title("Confusion Matrix (Counts)")
-#         plt.xlabel("Predicted")
-#         plt.ylabel("Actual")
-#         plt.tight_layout()
-#         plt.savefig(os.path.join(output_dir, "confusion_matrix_counts.png"))
-#         plt.close()
-
-#         # Normalized Confusion Matrix
-#         cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-#         plt.figure(figsize=(8, 6))
-#         sns.heatmap(cm_normalized, annot=True, fmt=".2f", cmap="Blues")
-#         plt.title("Confusion Matrix (Normalized)")
-#         plt.xlabel("Predicted")
-#         plt.ylabel("Actual")
-#         plt.tight_layout()
-#         plt.savefig(os.path.join(output_dir, "confusion_matrix_normalized.png"))
-#         plt.close()
-
-#     # --- PRECISION-RECALL CURVE ---
-#     if "precision_recall" in metrics_results:
-#         precisions, recalls, thresholds = metrics_results["precision_recall"]
-#         plt.figure(figsize=(8, 6))
-#         plt.plot(recalls, precisions, marker='.', label="Precision-Recall Curve")
-#         plt.xlabel("Recall")
-#         plt.ylabel("Precision")
-#         plt.title("Precision-Recall Curve")
-#         plt.legend()
-#         plt.grid()
-#         plt.savefig(os.path.join(output_dir, "precision_recall_curve.png"))
-#         plt.close()
-
-#     # --- F1-SCORE CURVE ---
-#     if "f1_curve" in metrics_results:
-#         f1_scores, f1_thresholds = metrics_results["f1_curve"]
-#         plt.figure(figsize=(8, 6))
-#         plt.plot(f1_thresholds, f1_scores, marker='.', label="F1-Score Curve")
-#         plt.xlabel("Confidence Threshold")
-#         plt.ylabel("F1-Score")
-#         plt.title("F1-Score Curve")
-#         plt.legend()
-#         plt.grid()
-#         plt.savefig(os.path.join(output_dir, "f1_score_curve.png"))
-#         plt.close()
-
-#     # --- IoU DISTRIBUTION HISTOGRAM ---
-#     if "iou_distribution" in metrics_results:
-#         ious = metrics_results["iou_distribution"]
-#         plt.figure(figsize=(8, 6))
-#         sns.histplot(ious, bins=20, kde=True)
-#         plt.xlabel("IoU")
-#         plt.ylabel("Count")
-#         plt.title("IoU Distribution Histogram")
-#         plt.savefig(os.path.join(output_dir, "iou_distribution.png"))
-#         plt.close()
-
-#     # --- CLASS-WISE AP & AR PLOTS ---
-#     if "classwise_AP" in metrics_results and "classwise_AR" in metrics_results:
-#         class_names = list(metrics_results["classwise_AP"].keys())
-#         ap_values = list(metrics_results["classwise_AP"].values())
-#         ar_values = list(metrics_results["classwise_AR"].values())
-
-#         df = pd.DataFrame({'Class': class_names, 'AP': ap_values, 'AR': ar_values})
-#         df = df.sort_values(by="AP", ascending=False)
-
-#         plt.figure(figsize=(10, 6))
-#         sns.barplot(x="AP", y="Class", data=df, palette="Blues_r")
-#         plt.xlabel("Average Precision (AP)")
-#         plt.title("Per-Class AP")
-#         plt.savefig(os.path.join(output_dir, "classwise_AP.png"))
-#         plt.close()
-
-#         plt.figure(figsize=(10, 6))
-#         sns.barplot(x="AR", y="Class", data=df, palette="Greens_r")
-#         plt.xlabel("Average Recall (AR)")
-#         plt.title("Per-Class AR")
-#         plt.savefig(os.path.join(output_dir, "classwise_AR.png"))
-#         plt.close()
-
-#     # --- BOX SIZE DISTRIBUTION ---
-#     if "box_sizes" in metrics_results:
-#         box_sizes = metrics_results["box_sizes"]
-#         plt.figure(figsize=(8, 6))
-#         sns.histplot(box_sizes, bins=30, kde=True)
-#         plt.xlabel("Bounding Box Area (pixels)")
-#         plt.ylabel("Count")
-#         plt.title("Bounding Box Size Distribution")
-#         plt.savefig(os.path.join(output_dir, "box_size_distribution.png"))
-#         plt.close()
 
 def box_iou(box1, box2, eps=1e-7):
     """
@@ -279,7 +175,7 @@ def plot_bb_distributions(output_dir, groundtruth_bbs, det_boxes, index_to_name)
         dict_det = {index_to_name[class_id]: count for class_id, count in dict_det.items()}
     plot_bb_per_classes(dict_det, horizontally=False, rotation=90, show=False, extra_title=' (detections)', output_dir=output_dir, box_type="dets")
 
-def plot_confusion_matrix(output_dir, groundtruth_bbs, det_boxes, num_classes, class_names=None):
+def plot_confusion_matrix(output_dir, cm, num_classes, class_names=None):
     """
     Compute and plot the confusion matrix based on ground truth and detection bounding boxes.
 
@@ -297,51 +193,6 @@ def plot_confusion_matrix(output_dir, groundtruth_bbs, det_boxes, num_classes, c
         List of class names (strings) for labeling the confusion matrix. If not provided,
         class labels 0,1,...,num_classes-1 will be used.
     """
-    # Create an instance of your confusion matrix (you can adjust conf and iou_thres as needed)
-    cm = ConfusionMatrix(nc=num_classes, conf=0.25, iou_thres=0.45)
-
-    # Group bounding boxes by image name so that IoU is computed per image.
-    gt_by_image = defaultdict(list)
-    det_by_image = defaultdict(list)
-    for gt in groundtruth_bbs:
-        gt_by_image[gt._image_name].append(gt)
-    for det in det_boxes:
-        det_by_image[det._image_name].append(det)
-
-    # Process images that have at least one ground truth box.
-    for image, gt_list in gt_by_image.items():
-        # Convert ground truth boxes into a tensor of shape (M, 5):
-        # [class, x1, y1, x2, y2]
-        labels = []
-        for gt in gt_list:
-            # Convert class id to int if necessary.
-            labels.append([int(gt._class_id), gt._x, gt._y, gt._x2, gt._y2])
-        labels = torch.tensor(labels)
-
-        # Get detections for this image, if any.
-        if image in det_by_image:
-            det_list = det_by_image[image]
-            detections = []
-            for det in det_list:
-                # Format: [x1, y1, x2, y2, confidence, class]
-                detections.append([det._x, det._y, det._x2, det._y2, det._confidence, int(det._class_id)])
-            detections = torch.tensor(detections)
-        else:
-            detections = torch.empty((0, 6))
-
-        # Update the confusion matrix for this image.
-        cm.process_batch(detections, labels)
-
-    # Also process images that have detections but no ground truth.
-    for image, det_list in det_by_image.items():
-        if image not in gt_by_image:
-            # No ground truth boxes for this image: we create an empty ground truth tensor.
-            labels = torch.empty((0, 5))
-            detections = []
-            for det in det_list:
-                detections.append([det._x, det._y, det._x2, det._y2, det._confidence, int(det._class_id)])
-            detections = torch.tensor(detections)
-            cm.process_batch(detections, labels)
 
     # Prepare class names if not provided.
     if class_names is None:
@@ -378,7 +229,7 @@ def get_groundtruth_and_detections(dir_gts, dir_dets):
 
     return groundtruth_bbs, det_boxes
 
-def plot_all(voc_metrics, output_dir, dir_dets, dir_gts, config, is_superclass=False,idx_to_name=True):
+def plot_all(voc_metrics, cm, output_dir, dir_dets, dir_gts, config, is_superclass=False,idx_to_name=True):
 
     index_to_name = None
     if idx_to_name:
@@ -403,7 +254,7 @@ def plot_all(voc_metrics, output_dir, dir_dets, dir_gts, config, is_superclass=F
         class_names = [index_to_name[str(class_id)] for class_id in class_names]
 
 
-    plot_confusion_matrix(output_dir, groundtruth_bbs, det_boxes, num_classes, class_names)
+    plot_confusion_matrix(output_dir, cm, num_classes, class_names)
 
     plot_bb_distributions(output_dir, groundtruth_bbs, det_boxes, index_to_name)
 

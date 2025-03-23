@@ -1,14 +1,11 @@
 # object_detection/metrics.py
 import os
 import pandas as pd
+from collections import defaultdict
+import torch
+import numpy as np
 
-# # Import the COCO evaluator from your external library.
-# from object_detection.external_libraries.review_object_detection_metrics.src.evaluators.coco_evaluator import get_coco_summary
-# from object_detection.external_libraries.review_object_detection_metrics.src.bounding_box import BoundingBox, BBType, BBFormat
-# from object_detection.external_libraries.review_object_detection_metrics.src.utils.enumerators import CoordinatesType
-# from object_detection.external_libraries.review_object_detection_metrics.src.utils.general_utils import convert_to_absolute_values
-# from object_detection.external_libraries.review_object_detection_metrics.src.utils import converter
-# Import the COCO evaluator from your external library.
+from object_detection.plot_utils import ConfusionMatrix
 
 from object_detection.external_libraries.review_object_detection_metrics.src.evaluators.coco_evaluator import get_coco_summary
 from object_detection.external_libraries.review_object_detection_metrics.src.evaluators.pascal_voc_evaluator import get_pascalvoc_metrics
@@ -58,6 +55,7 @@ def compute_pascalvoc_metrics(predictions_dir, ground_truth_dir, iou_threshold=0
     
     return voc_metrics
 
+
 def save_voc_metrics_csv(voc_metrics, output_csv_path):
     """
     Save VOC metrics (per class and mAP) to a CSV file.
@@ -76,7 +74,68 @@ def save_voc_metrics_csv(voc_metrics, output_csv_path):
     df.to_csv(output_csv_path, index=False)
     
 
-def compute_detection_metrics(predictions_dir, ground_truth_dir, img_size, use_superclasses=False, avg_inference_speed=None):
+def compute_confusion_matrix(groundtruth_bbs, det_boxes, num_classes):
+    # Compute and plot the confusion matrix based on ground truth and detection bounding boxes.
+    cm = ConfusionMatrix(nc=num_classes, conf=0.25, iou_thres=0.45)
+
+    # Group bounding boxes by image name so that IoU is computed per image.
+    gt_by_image = defaultdict(list)
+    det_by_image = defaultdict(list)
+    for gt in groundtruth_bbs:
+        gt_by_image[gt._image_name].append(gt)
+    for det in det_boxes:
+        det_by_image[det._image_name].append(det)
+
+    # Process images that have at least one ground truth box.
+    for image, gt_list in gt_by_image.items():
+        # Convert ground truth boxes into a tensor of shape (M, 5):
+        # [class, x1, y1, x2, y2]
+        labels = []
+        for gt in gt_list:
+            # Convert class id to int if necessary.
+            labels.append([int(gt._class_id), gt._x, gt._y, gt._x2, gt._y2])
+        labels = torch.tensor(labels)
+
+        # Get detections for this image, if any.
+        if image in det_by_image:
+            det_list = det_by_image[image]
+            detections = []
+            for det in det_list:
+                # Format: [x1, y1, x2, y2, confidence, class]
+                detections.append([det._x, det._y, det._x2, det._y2, det._confidence, int(det._class_id)])
+            detections = torch.tensor(detections)
+        else:
+            detections = torch.empty((0, 6))
+
+        # Update the confusion matrix for this image.
+        cm.process_batch(detections, labels)
+
+    # Also process images that have detections but no ground truth.
+    for image, det_list in det_by_image.items():
+        if image not in gt_by_image:
+            # No ground truth boxes for this image: we create an empty ground truth tensor.
+            labels = torch.empty((0, 5))
+            detections = []
+            for det in det_list:
+                detections.append([det._x, det._y, det._x2, det._y2, det._confidence, int(det._class_id)])
+            detections = torch.tensor(detections)
+            cm.process_batch(detections, labels)
+
+    return cm
+
+def get_class_names(config, is_superclass):
+    """
+    Get the class names for a given configuration.
+    """
+    if not is_superclass:
+        num_classes = len(config["name_to_index"])
+        class_names = list(config["name_to_index"].values())
+    else:
+        num_classes = len(config["mappings"].keys())
+        class_names = [config["name_to_index"][key] for key in config["mappings"].keys()]
+    return num_classes, class_names
+
+def compute_detection_metrics(predictions_dir, ground_truth_dir, img_size, config, use_superclasses=False, avg_inference_speed=None):
     """
     Compute object detection metrics by reading predictions from saved text files.
     
@@ -113,12 +172,26 @@ def compute_detection_metrics(predictions_dir, ground_truth_dir, img_size, use_s
 
     # Compute metrics using the external COCO-based evaluator.
     coco_metrics = get_coco_summary(groundtruth_bbs, detected_bbs)
-    
+
+    num_classes, _ = get_class_names(config, use_superclasses)
+    # Compute the confusion matrix.
+    cm = compute_confusion_matrix(groundtruth_bbs, detected_bbs, num_classes)
+
+    # Compute FN_det and FP_det from the confusion matrix.
+    # FN_det: Sum over the "background" row (index num_classes) for all object classes.
+    FN_det = np.sum(cm.matrix[cm.nc, :cm.nc])
+    # FP_det: Sum over the "background" column (index num_classes) for all predicted classes.
+    FP_det = np.sum(cm.matrix[:cm.nc, cm.nc])
+
+    # Add these additional metrics to the results.
+    coco_metrics["FN_det"] = int(FN_det)
+    coco_metrics["FP_det"] = int(FP_det)
+
     # Add the average inference speed (runtime) to the metrics.
     if avg_inference_speed is not None:
         coco_metrics["inference_speed"] = avg_inference_speed
 
-    return coco_metrics
+    return coco_metrics, cm
 
 def save_metrics_csv(metrics_results, output_csv_path):
     df = pd.DataFrame([metrics_results])

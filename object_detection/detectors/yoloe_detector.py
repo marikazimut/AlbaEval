@@ -1,24 +1,57 @@
-# object_detection/detectors/yolo_detector.py
+# object_detection/detectors/yoloe_detector.py
 import os
-from ultralytics import YOLO  # Assuming ultralytics is installed
+from object_detection.external_libraries.yoloe.ultralytics import YOLOE
 import json
 import time
 import torch
+import sys
 
-class YOLODetector:
+# current_dir = os.path.dirname(os.path.abspath(__file__))
+# local_ultralytics_dir = os.path.join(current_dir, '..', 'external_libraries', 'yoloe')
+# sys.path.insert(0, local_ultralytics_dir)
+
+class YOLOEDetector:
     def __init__(self, model_name):
         self.model_name = model_name
     
     def run_inference(self, images_dir, img_size, models_dir, weights_file):
         # Load the appropriate weights for YOLO11 from the models folder.
+
+        # unfused_model = YOLOE("yoloe-v8l.yaml")
+        # unfused_model.load("object_detection\external_libraries\yoloe\pretrain\yoloe-v8l-seg.pt")
+        # unfused_model.eval()
+        # unfused_model.cuda()
+
+        # with open(r'object_detection\external_libraries\yoloe\tools\ram_tag_list.txt', 'r') as f:
+        #     names = [x.strip() for x in f.readlines()]
+        # vocab = unfused_model.get_vocab(names)
+
+
+
         model_path = os.path.join(models_dir, self.model_name, weights_file)
-        model = YOLO(model_path)
+        # model = YOLOE(model_path)
+        # model = YOLOE("object_detection\external_libraries\yoloe\pretrain\yoloe-v8l-seg.pt")
+        model = YOLOE(r"C:\Users\offic\OneDrive\Desktop\Evaluation-pipeline\object_detection\models\yoloe-11m\yoloe-11m-seg.pt")
+
+
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model.to(device)
+
+        # model.set_vocab(vocab, names=names)
+        # model.model.model[-1].is_fused = True
+        # model.model.model[-1].conf = 0.001
+        # model.model.model[-1].max_det = 1000
 
         predictions = []
         inference_times = []
         corrupted_images = []
+
+        # model.args["task"] = "detect"
+
+        # model.get_text_pe(["person", "car", "dog"])
+        # names = ['Merchant', 'Military', 'SWC', 'Support', 'Dvora', 'Motor', 'Patrol-Boat', 'Pilot', 'Bulk', 'Containers', 'General-Cargo', 'Ro-Ro', 'Tanker', 'Saar-4.5', 'Saar-5', 'Submarine', 'Buoy', 'Sailing', 'Cruise', 'Ferry', 'Supply', 'Tug', 'Yacht', 'Fishing', 'Rubber', 'Patrol', 'Saar-6', 'BWC']
+        names = ["barge", "seaplane", "fish boat", "sailboat", "ferry", "yacht", "boat", "ship", "vessel", "cargo ship", "container ship", "cruise ship", "fishing boat", "military ship", "patrol boat", "patrol ship", "supply ship", "tanker", "tugboat"]
+        model.set_classes(names, model.get_text_pe(names))
 
         # Iterate over test images and run inference.
         for image_file in sorted(os.listdir(images_dir)):
