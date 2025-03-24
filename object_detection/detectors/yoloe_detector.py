@@ -14,7 +14,7 @@ class YOLOEDetector:
     def __init__(self, model_name):
         self.model_name = model_name
     
-    def run_inference(self, images_dir, img_size, models_dir, weights_file):
+    def run_inference(self, images_dir, img_size, models_dir, weights_file, prompt_type="text"):
         # Load the appropriate weights for YOLO11 from the models folder.
 
         # unfused_model = YOLOE("yoloe-v8l.yaml")
@@ -29,11 +29,10 @@ class YOLOEDetector:
 
 
         model_path = os.path.join(models_dir, self.model_name, weights_file)
-        # model = YOLOE(model_path)
+        model = YOLOE(model_path)
         # model = YOLOE("object_detection\external_libraries\yoloe\pretrain\yoloe-v8l-seg.pt")
-        model = YOLOE(r"C:\Users\offic\OneDrive\Desktop\Evaluation-pipeline\object_detection\models\yoloe-11m\yoloe-11m-seg.pt")
-
-
+        # model = YOLOE(r"C:\Users\offic\OneDrive\Desktop\Evaluation-pipeline\object_detection\models\yoloe-11m\yoloe-11m-seg.pt")
+        model.eval()
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         model.to(device)
 
@@ -47,11 +46,24 @@ class YOLOEDetector:
         corrupted_images = []
 
         # model.args["task"] = "detect"
+        if prompt_type == "text":
+            # names = ['Merchant', 'Military', 'SWC', 'Support', 'Dvora', 'Motor', 'Patrol-Boat', 'Pilot', 'Bulk', 'Containers', 'General-Cargo', 'Ro-Ro', 'Tanker', 'Saar-4.5', 'Saar-5', 'Submarine', 'Buoy', 'Sailing', 'Cruise', 'Ferry', 'Supply', 'Tug', 'Yacht', 'Fishing', 'Rubber', 'Patrol', 'Saar-6', 'BWC']
+            names = ["barge", "seaplane", "fish boat", "sailboat", "ferry", "yacht", "boat", "ship", "vessel", "cargo ship", "container ship", "cruise ship", "fishing boat", "military ship", "patrol boat", "patrol ship", "supply ship", "tanker", "tugboat"]
+            model.set_classes(names, model.get_text_pe(names))
 
-        # model.get_text_pe(["person", "car", "dog"])
-        # names = ['Merchant', 'Military', 'SWC', 'Support', 'Dvora', 'Motor', 'Patrol-Boat', 'Pilot', 'Bulk', 'Containers', 'General-Cargo', 'Ro-Ro', 'Tanker', 'Saar-4.5', 'Saar-5', 'Submarine', 'Buoy', 'Sailing', 'Cruise', 'Ferry', 'Supply', 'Tug', 'Yacht', 'Fishing', 'Rubber', 'Patrol', 'Saar-6', 'BWC']
-        names = ["barge", "seaplane", "fish boat", "sailboat", "ferry", "yacht", "boat", "ship", "vessel", "cargo ship", "container ship", "cruise ship", "fishing boat", "military ship", "patrol boat", "patrol ship", "supply ship", "tanker", "tugboat"]
-        model.set_classes(names, model.get_text_pe(names))
+        elif prompt_type == "free":
+            unfused_model = YOLOE(os.path.join(models_dir, self.model_name, "yoloe-11m-seg.pt"))
+            # unfused_model.load()
+            unfused_model.eval()
+            unfused_model.cuda()
+            with open(r'object_detection\external_libraries\yoloe\tools\ram_tag_list.txt', 'r') as f:
+                names = [x.strip() for x in f.readlines()]
+            vocab = unfused_model.get_vocab(names)
+
+            model.set_vocab(vocab, names=names)
+            # model.model.model[-1].is_fused = True
+            # model.model.model[-1].conf = 0.001
+            # model.model.model[-1].max_det = 1000
 
         # Iterate over test images and run inference.
         for image_file in sorted(os.listdir(images_dir)):
@@ -59,7 +71,7 @@ class YOLOEDetector:
             
             try:
                 start_time = time.time()
-                results = model.predict(image_path, conf=0.05, imgsz=img_size, verbose=False)  # pseudocode: adjust as needed
+                results = model.predict(image_path, conf=0.01, imgsz=img_size, verbose=False)  # pseudocode: adjust as needed
                 end_time = time.time()
                 inference_times.append(end_time - start_time)
             

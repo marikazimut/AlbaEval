@@ -125,7 +125,8 @@ class ConfusionMatrix:
         ax.set_xlabel('True')
         ax.set_ylabel('Predicted')
         ax.set_title('Confusion Matrix')
-        fig.savefig(Path(save_dir) / 'confusion_matrix.png', dpi=250)
+        is_norm = 'norm' if normalize else ''
+        fig.savefig(Path(save_dir) / f'confusion_matrix_{is_norm}.png', dpi=250)
         plt.close(fig)
 
     def print(self):
@@ -203,6 +204,7 @@ def plot_confusion_matrix(output_dir, cm, num_classes, class_names=None):
 
     # Plot and save the confusion matrix.
     cm.plot(normalize=True, save_dir=output_dir, names=class_names)
+    cm.plot(normalize=False, save_dir=output_dir, names=class_names)
 
     # Optionally, you could print the raw confusion matrix:
     # cm.print()

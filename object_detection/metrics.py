@@ -186,6 +186,9 @@ def compute_detection_metrics(predictions_dir, ground_truth_dir, img_size, confi
     # Add these additional metrics to the results.
     coco_metrics["FN_det"] = int(FN_det)
     coco_metrics["FP_det"] = int(FP_det)
+    coco_metrics["FN_det_norm"] = FN_det / len(groundtruth_bbs)
+    coco_metrics["FP_det_norm"] = FP_det / len(groundtruth_bbs)
+    coco_metrics["gt_num"] = len(groundtruth_bbs)
 
     # Add the average inference speed (runtime) to the metrics.
     if avg_inference_speed is not None:

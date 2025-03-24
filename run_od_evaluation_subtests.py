@@ -85,11 +85,11 @@ def process_subtest(subtest, args, config, detector, is_combined=False):
 
     # Compute evaluation metrics and graphs for subclass outputs.
     logging.info(f"Computing detection metrics for {subclass_dir_pred}")
-    metrics_results = metrics.compute_detection_metrics(subclass_dir_pred, test_labels_dir, args.img_size, avg_inference_speed=avg_inference_speed)
+    metrics_results, cm = metrics.compute_detection_metrics(subclass_dir_pred, test_labels_dir, args.img_size, config, avg_inference_speed=avg_inference_speed)
     metrics.save_metrics_csv(metrics_results, os.path.join(subclass_output, "results.csv"))
     voc_metrics = metrics.compute_pascalvoc_metrics(subclass_dir_pred, test_labels_dir, iou_threshold=0.5)
     metrics.save_voc_metrics_csv(voc_metrics, os.path.join(subclass_output, "voc_results.csv"))
-    plot_utils.plot_all(voc_metrics, subclass_output, subclass_dir_pred, test_labels_dir, config)
+    plot_utils.plot_all(voc_metrics, cm, subclass_output, subclass_dir_pred, test_labels_dir, config)
     logging.info(f"Plotted metrics for {subclass_output}")
 
     if not is_combined:
@@ -113,12 +113,12 @@ def process_subtest(subtest, args, config, detector, is_combined=False):
 
     # Compute and save metrics/plots for superclass predictions.
     logging.info(f"Computing detection metrics for {superclass_dir_pred}")
-    superclass_metrics = metrics.compute_detection_metrics(
-        superclass_dir_pred, superclass_labels_dir, args.img_size, avg_inference_speed=None, use_superclasses=True)
+    superclass_metrics, cm = metrics.compute_detection_metrics(
+        superclass_dir_pred, superclass_labels_dir, args.img_size, config, avg_inference_speed=None, use_superclasses=True)
     metrics.save_metrics_csv(superclass_metrics, os.path.join(superclass_output, "results.csv"))
     voc_metrics = metrics.compute_pascalvoc_metrics(superclass_dir_pred, superclass_labels_dir, iou_threshold=0.5)
     metrics.save_voc_metrics_csv(voc_metrics, os.path.join(superclass_output, "voc_results.csv"))
-    plot_utils.plot_all(voc_metrics, superclass_output, superclass_dir_pred, superclass_labels_dir, config, is_superclass=True)
+    plot_utils.plot_all(voc_metrics, cm, superclass_output, superclass_dir_pred, superclass_labels_dir, config, is_superclass=True)
     logging.info(f"Plotted metrics for {superclass_output}")
 
     return predictions  # return predictions for use in JSON update (if inference was run)
