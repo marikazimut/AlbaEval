@@ -19,9 +19,9 @@ def setup_logger(log_file="pipeline.log"):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Object Detection Evaluation Pipeline")
-    parser.add_argument("--model", type=str, default="yoloe-11m", help="Model name (e.g., 'yolo11', 'yolo9', 'yoloe-11m', 'detr')")
-    parser.add_argument("--weights", type=str, default="yoloe-11m-seg.pt", help="Model weights file (e.g., 'Albatross-v0.3.pt', 'Albatross-v0.2.pt','Albatross-v0.4.pt', 'Albatross-v0.4-2.pt', 'yoloe-11m-seg.pt', 'yoloe-11m-seg-pf.pt')")
-    parser.add_argument("--test_set", type=str, default="Albatross-Dataset-v0.4-test - combined_testset", help="Test-set version to evaluate (e.g., 'Azimut-Haifa-Dataset-v0.4', 'Albatross-Dataset-v0.4-test', 'Albatross-Dataset-v0.4-test - combined_testset', 'yoloe-test')")
+    parser.add_argument("--model", type=str, default="yolo11", help="Model name (e.g., 'yolo11', 'yolo9', 'yoloe-11m', 'detr')")
+    parser.add_argument("--weights", type=str, default="Albatross-v0.4.1.pt", help="Model weights file (e.g., 'Albatross-v0.3.pt', 'Albatross-v0.2.pt','Albatross-v0.4.pt', 'Albatross-v0.4-2.pt', 'yoloe-11m-seg.pt', 'yoloe-11m-seg-pf.pt')")
+    parser.add_argument("--test_set", type=str, default="Albatross-Dataset-v0.4-test", help="Test-set version to evaluate (e.g., 'Azimut-Haifa-Dataset-v0.4', 'Albatross-Dataset-v0.4-test', 'Albatross-Dataset-v0.4-test - combined_testset', 'yoloe-test')")
     parser.add_argument("--img_size", type=int, default=[1088, 1920], help="Input image size for the detector") 
     return parser.parse_args()
 

@@ -20,13 +20,13 @@ def setup_logger(log_file="pipeline.log"):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Object Detection Evaluation Pipeline")
-    parser.add_argument("--model", type=str, default="yolo11", help="Model name (e.g., 'yolo11', 'yolo9', 'detr')")
+    parser.add_argument("--model", type=str, default="yolo11s", help="Model name (e.g., 'yolo11s', 'yolo9', 'detr')")
     parser.add_argument("--weights", type=str, default="Albatross-v0.4.pt", help="Model weights file")
-    parser.add_argument("--test_set", type=str, default="Albatross-Dataset-v0.4-test", help="Test-set version to evaluate")
+    parser.add_argument("--test_set", type=str, default="Albatross-Dataset-v0.4-test", help="Test-set version to evaluate (e.g. 'Albatross-Dataset-v0.4-test', 'Albatross-Dataset-v0.4-test - combined_testset', 'yoloe-test')")
     # Note: img_size here is expected to be a list of two integers, e.g., [1088, 1920]
     parser.add_argument("--img_size", type=int, nargs=2, default=[1088, 1920], help="Input image size for the detector")
     # New argument for JSON folder containing the original subset JSON files
-    parser.add_argument("--json_dir", type=str, default="", help="Path to folder containing subset JSON files. (r'C:\Users\offic\OneDrive\Desktop\Azimut-Labeling')")
+    parser.add_argument("--json_dir", type=str, default=r"C:\Users\offic\OneDrive\Desktop\Azimut-Labeling", help=r"Path to folder containing subset JSON files. (r'C:\Users\offic\OneDrive\Desktop\Azimut-Labeling')")
     return parser.parse_args()
 
 def load_config(config_path="object_detection/config.yaml"):
@@ -34,7 +34,7 @@ def load_config(config_path="object_detection/config.yaml"):
         return yaml.safe_load(f)
 
 def select_detector(model_name):
-    if model_name.lower() in ["yolo11", "yolo9"]:
+    if model_name.lower() in ["yolo11s", "yolo9"]:
         return yolo_detector.YOLODetector(model_name)
     # elif model_name.lower() == "detr":
     #     return detr_detector.DETRDetector(model_name)
@@ -123,7 +123,7 @@ def process_subtest(subtest, args, config, detector, is_combined=False):
 
     return predictions  # return predictions for use in JSON update (if inference was run)
 
-def update_json_predictions_for_subtest(subtest, predictions, args):
+def update_json_predictions_for_subtest(subtest, predictions, args, config):
     """
     For the given subtest:
       - Load the original JSON file from the folder provided in args.json_dir (e.g. "test-AZIMUTHAIFA.json").
@@ -138,6 +138,9 @@ def update_json_predictions_for_subtest(subtest, predictions, args):
     updated_json_path = os.path.join(output_dir, f"{subtest}_updated.json")
 
     unmapped_images = []
+
+    name_to_index = config["name_to_index"]
+    index_to_name = {str(v): k for k, v in name_to_index.items()}
 
     if not os.path.exists(original_json_path):
         logging.warning(f"JSON file for subtest '{subtest}' not found at {original_json_path}. Skipping JSON update.")
@@ -194,7 +197,7 @@ def update_json_predictions_for_subtest(subtest, predictions, args):
                         "y": y_norm,
                         "width": width_norm,
                         "height": height_norm,
-                        "rectanglelabels": [str(det["label"])]
+                        "rectanglelabels": [str(index_to_name[str(det["label"])])]
                     },
                     "to_name": "image",
                     "from_name": "label",
@@ -275,7 +278,7 @@ def main():
         preds = process_subtest(subtest, args, config, detector)
         # If a JSON directory is provided and we have predictions, update the corresponding JSON file.
         if args.json_dir and preds is not None:
-            unmapped_images = update_json_predictions_for_subtest(subtest, preds, args)
+            unmapped_images = update_json_predictions_for_subtest(subtest, preds, args, config)
             if len(unmapped_images) > 0:
                 print(f"Unmapped images: {len(unmapped_images)}")
 
