@@ -138,7 +138,7 @@ def plot_grouped_bars(ax, summary_df, group_keys, group_labels, title, ylabel, m
             values.append(summary_df.loc[key][model] if key in summary_df.index else float('nan'))
         ax.bar(offsets, values, width=bar_width, color=model_colors.get(model, "gray"), edgecolor='black', label=model)
         for j, v in enumerate(values):
-            if title in ['TP', 'FP', 'Detection Counts', 'Background Confusion']:
+            if title in ['TP', 'FP', 'Detection Counts', 'Background Confusion', 'Missed Detection Counts']:
                 ax.annotate(f'{v:.0f}', xy=(offsets[j], v),
                             xytext=(0, 3), textcoords="offset points",
                             ha='center', va='bottom', fontsize=8)
@@ -162,7 +162,7 @@ def plot_composite_for_category(cat_name, summary_df, model_names, model_colors,
     For each category, only the specific metrics are used.
     """
     fig_comp = None
-    if cat_name == "Overall Performance - cls":
+    if cat_name == "Overall Performance":
         fig_comp, (ax_group1, ax_group2) = plt.subplots(1, 2, figsize=(6, 3))
         # For precision-recall, use only AP and AR100 (displayed as AP and AR)
         pr_keys = ["AP", "AR100"]
@@ -179,19 +179,40 @@ def plot_composite_for_category(cat_name, summary_df, model_names, model_colors,
                           title="Detection Counts", ylabel="Count",
                           model_names=model_names, model_colors=model_colors)
     elif cat_name == "Overall Performance - det":
-        fig_comp, ax_comp = plt.subplots(figsize=(6, 3))
+        fig_comp, (ax_group1, ax_group2) = plt.subplots(1, 2, figsize=(6, 3))
         # For precision-recall, use only AP and AR100 (displayed as AP and AR)
-        pr_keys = ["FN_det", "FP_det"]
-        pr_labels = ["FN Det", "FP Det"]
+        pr_keys = ["AP_det", "AR_det"]
+        pr_labels = ["AP Det", "AR Det"]
+        # For detection counts, use only voc_tp and voc_fp (displayed as TP and FP)
+        f_keys = ["FN_det", "FP_det"]
+        f_labels = ["FN Det", "FP Det"]
 
-        plot_grouped_bars(ax_comp, summary_df, group_keys=pr_keys,
+        plot_grouped_bars(ax_group1, summary_df, group_keys=pr_keys,
                         group_labels=pr_labels,
-                        title="Background Confusion", ylabel="Score",
+                        title="object vs. background", ylabel="Score",
                         model_names=model_names, model_colors=model_colors)
-        # plot_grouped_bars(ax_group2, summary_df, group_keys=dc_keys,
-        #                 group_labels=dc_labels,
-        #                 title="Detection Counts", ylabel="Count",
-        #                 model_names=model_names, model_colors=model_colors)
+        plot_grouped_bars(ax_group2, summary_df, group_keys=f_keys,
+                        group_labels=f_labels,
+                        title="Missed Detection Counts", ylabel="Count",
+                        model_names=model_names, model_colors=model_colors)
+    elif cat_name == "Overall Performance - cls":
+        fig_comp, (ax_group1, ax_group2) = plt.subplots(1, 2, figsize=(6, 3))
+        # For precision-recall, use only AP and AR100 (displayed as AP and AR)
+        pr_keys = ["AP_cls", "AR_cls"]
+        pr_labels = ["AP Cls", "AR Cls"]
+        # For detection counts, use only voc_tp and voc_fp (displayed as TP and FP)
+        f_keys = ["FN_cls", "FP_cls"]
+        f_labels = ["FN Cls", "FP Cls"]
+
+        plot_grouped_bars(ax_group1, summary_df, group_keys=pr_keys,
+                        group_labels=pr_labels,
+                        title="cls", ylabel="Score",
+                        model_names=model_names, model_colors=model_colors)
+        plot_grouped_bars(ax_group2, summary_df, group_keys=f_keys,
+                        group_labels=f_labels,
+                        title="Missed Detection Counts", ylabel="Count",
+                        model_names=model_names, model_colors=model_colors)
+        
     elif cat_name == "BBox Localization":
         fig_comp, ax_comp = plt.subplots(figsize=(6, 3))
         loc_keys = ["AP50", "AP75"]
@@ -321,7 +342,7 @@ def create_pdf_report(sub_summary_df, super_summary_df, args, sub_confusion_imag
     output_file = os.path.join(output_dir, "comparison_summary.pdf")
 
     categories = [
-        ("Overall Performance - cls", {
+        ("Overall Performance", {
             "explanation": (
                 "AP: The area under the precision–recall curve averaged over multiple IoU threshs "
                 "(0.50 to 0.95). ;AR: The average recall over multiple IoU thresholds. "
@@ -330,9 +351,18 @@ def create_pdf_report(sub_summary_df, super_summary_df, args, sub_confusion_imag
         }),
         ("Overall Performance - det", {
             "explanation": (
-                "AP: The area under the precision–recall curve averaged over multiple IoU threshs "
-                "(0.50 to 0.95). ;AR: The average recall over multiple IoU thresholds. "
-                ";TP: The total number of true positives based on VOC metrics. ;FP: The total number of false positives based on VOC metrics."
+                "AP_det: Average Precision for object detection (object vs. background discrimination). "
+                ";AR_det: Average Recall for object detection, measuring the ability to find all objects. "
+                ";FN_det: Number of ground truth objects that were not detected (missed detections). "
+                ";FP_det: Number of predicted objects that do not correspond to any ground truth object."
+            )
+        }),
+        ("Overall Performance - cls", {
+            "explanation": (
+                "AP_cls: Average Precision for classification among detected objects (excluding background confusion). "
+                ";AR_cls: Average Recall for classification, measuring correct class assignment of detected objects. "
+                ";FN_cls: Cases where objects were detected but assigned the wrong class. "
+                ";FP_cls: Cases where detected objects were incorrectly classified."
             )
         }),
         ("Object Confusion", {
@@ -532,7 +562,7 @@ def parse_args():
     parser.add_argument(
         '--weights', 
         nargs='+', 
-        default=['Albatross-v0.4', 'Albatross-v0.4.1'],
+        default=['Albatross-v0.4','Albatross-v0.4.1', 'Albatross-v0.4.2'],
         help="List of model weights (e.g., Albatross-v0.3 Albatross-v0.4)"
     )
     parser.add_argument(

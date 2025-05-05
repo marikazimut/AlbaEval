@@ -190,6 +190,55 @@ def compute_detection_metrics(predictions_dir, ground_truth_dir, img_size, confi
     coco_metrics["FP_det_norm"] = FP_det / len(groundtruth_bbs)
     coco_metrics["gt_num"] = len(groundtruth_bbs)
 
+    # Calculate classification metrics (without background)
+    # TP_cls: True positives for classification (diagonal elements excluding background)
+    TP_cls = np.sum(np.diag(cm.matrix[:cm.nc, :cm.nc]))
+    
+    # FP_cls: False positives for classification (non-diagonal elements, excluding background column)
+    FP_cls = np.sum(cm.matrix[:cm.nc, :cm.nc]) - TP_cls
+    
+    # FN_cls: False negatives for classification (non-diagonal elements, excluding background row)
+    FN_cls = FP_cls  # In a confusion matrix, total FP = total FN for classification errors
+
+    # # FP_cls: Sum of off-diagonal elements in columns (objects classified as wrong class)
+    # # For each column j, sum all elements cm[i,j] where i ≠ j
+    # FP_cls = 0
+    # for j in range(cm.nc):
+    #     for i in range(cm.nc):
+    #         if i != j:
+    #             FP_cls += cm.matrix[i, j]
+
+    # # FN_cls: Sum of off-diagonal elements in rows (correct classes missed)
+    # # For each row i, sum all elements cm[i,j] where i ≠ j
+    # FN_cls = 0
+    # for i in range(cm.nc):
+    #     for j in range(cm.nc):
+    #         if i != j:
+    #             FN_cls += cm.matrix[i, j]
+
+
+    # Calculate precision and recall for classification
+    precision_cls = TP_cls / (TP_cls + FP_cls) if (TP_cls + FP_cls) > 0 else 0
+    recall_cls = TP_cls / (TP_cls + FN_cls) if (TP_cls + FN_cls) > 0 else 0
+    
+    # Calculate detection metrics (background only)
+    # For detection, we're concerned with detecting objects vs background
+    # TP_det: Objects correctly detected (sum of all non-background predictions that match ground truth)
+    TP_det = np.sum(cm.matrix[:cm.nc, :cm.nc])
+    
+    # Precision and recall for detection
+    precision_det = TP_det / (TP_det + FP_det) if (TP_det + FP_det) > 0 else 0
+    recall_det = TP_det / (TP_det + FN_det) if (TP_det + FN_det) > 0 else 0
+    
+    # Compute AP and AR for classification and detection
+    # Note: This is a simple version; you might want to use a proper AP calculation with different IoU thresholds
+    coco_metrics["FN_cls"] = int(FN_cls)
+    coco_metrics["FP_cls"] = int(FP_cls)
+    coco_metrics["AP_cls"] = precision_cls
+    coco_metrics["AR_cls"] = recall_cls
+    coco_metrics["AP_det"] = precision_det
+    coco_metrics["AR_det"] = recall_det
+
     # Add the average inference speed (runtime) to the metrics.
     if avg_inference_speed is not None:
         coco_metrics["inference_speed"] = avg_inference_speed
