@@ -21,10 +21,10 @@ def setup_logger(log_file="pipeline.log"):
 def parse_args():
     parser = argparse.ArgumentParser(description="Object Detection Evaluation Pipeline")
     parser.add_argument("--model", type=str, default="yolo11s", help="Model name (e.g., 'yolo11s', 'yolo9', 'detr')")
-    parser.add_argument("--weights", type=str, default="Albatross-v0.4.2.pt", help="Model weights file")
+    parser.add_argument("--weights", type=str, default="Albatross-v0.4.4.pt", help="Model weights file")
     parser.add_argument("--test_set", type=str, default="Albatross-Dataset-v0.4-test", help="Test-set version to evaluate (e.g. 'Albatross-Dataset-v0.4-test', 'Albatross-Dataset-v0.4-test - combined_testset', 'yoloe-test')")
     # Note: img_size here is expected to be a list of two integers, e.g., [1088, 1920]
-    parser.add_argument("--img_size", type=int, nargs=2, default=[1088, 1920], help="Input image size for the detector")
+    parser.add_argument("--img_size", type=int, nargs=2, default=[1088, 1920], help="Input image size for the detector eg [1088, 1920], 1280")
     # New argument for JSON folder containing the original subset JSON files
     parser.add_argument("--json_dir", type=str, default=r"", help=r"Path to folder containing subset JSON files. (r'C:\Users\offic\OneDrive\Desktop\Azimut-Labeling')")
     return parser.parse_args()
@@ -34,17 +34,70 @@ def load_config(config_path="object_detection/config.yaml"):
         return yaml.safe_load(f)
 
 def select_detector(model_name):
-    if model_name.lower() in ["yolo11s", "yolo9"]:
+    if model_name.lower() in ["yolo11s", "yolo9", "yolo12s"]:
         return yolo_detector.YOLODetector(model_name, save_runtime_obj_hist=True)
     # elif model_name.lower() == "detr":
     #     return detr_detector.DETRDetector(model_name)
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
-def get_avg_inference_speed(args, config, detector):
-    pass
+def get_avg_inference_speed(args, subtests):
+    """
+    Calculates the average inference speed across all already processed subtests.
+    
+    Args:
+        args: Command line arguments
+        subtests: List of subtest names
+    
+    Returns:
+        float: Average inference speed across all subtests (in ms per image)
+    """    
+    # Initialize variables for calculation
+    total_time = 0
+    total_subtest = []
+    
+    for subtest in subtests:
+        # Define path to the metrics results CSV for this subtest
+        subclass_output = os.path.join("object_detection", "outputs", args.model, 
+                                     pathlib.Path(args.weights).stem, subtest, "subclass")
+        metrics_csv_path = os.path.join(subclass_output, "results.csv")
+        
+        # Skip if this subtest hasn't been processed yet
+        if not os.path.exists(metrics_csv_path):
+            continue
+        
+        # Read the CSV to get inference speed and image count
+        try:
+            with open(metrics_csv_path, 'r') as f:
+                lines = f.readlines()
+                if "inference_speed" in lines[0]:
+                    try:
+                        inference_speed_idx = lines[0].split(",").index("inference_speed\n")
+                        subtest_speed = float(lines[1].split(",")[inference_speed_idx])
+                        total_time += subtest_speed
+                        total_subtest.append(subtest)
+                    except (ValueError, IndexError):
+                        logging.warning(f"Could not parse inference speed from {metrics_csv_path}")
+        except Exception as e:
+            logging.warning(f"Error reading metrics from {metrics_csv_path}: {e}")
+    
+    # Calculate the average
+    if len(total_subtest) > 0:
+        avg_speed = total_time / len(total_subtest)
+        logging.info(f"Calculated average inference speed across {len(total_subtest)} subtests: {avg_speed:.4f} ms/img")
+        return avg_speed
+    else:
+        logging.warning("Could not calculate average inference speed - no valid subtests found")
+        # If no data is available, try to estimate from the detector model
+        default_speed = 0
+        if default_speed:
+            logging.info(f"Using estimated inference speed: {default_speed:.2f} ms/img")
+            return default_speed
+        else:
+            return None
+        
 
-def process_subtest(subtest, args, config, detector, is_combined=False):
+def process_subtest(subtest, args, config, detector, is_combined=False, subtests=None):
     # Define paths based on the project structure
     test_images_dir = os.path.join("object_detection", "test_sets", args.test_set, subtest, "images")
     test_labels_dir = os.path.join("object_detection", "test_sets", args.test_set, subtest, "labels")
@@ -81,7 +134,8 @@ def process_subtest(subtest, args, config, detector, is_combined=False):
         logging.info(f"Saved predictions to {subclass_dir_pred}")
     else:
         # TODO: get avg inference speed from combined predictions
-        avg_inference_speed = 0
+        # avg_inference_speed = 0
+        avg_inference_speed = get_avg_inference_speed(args, subtests)
 
     # Compute evaluation metrics and graphs for subclass outputs.
     logging.info(f"Computing detection metrics for {subclass_dir_pred}")
@@ -269,23 +323,31 @@ def main():
     args = parse_args()
     config = load_config()
 
-    # Choose the right detector
-    detector = select_detector(args.model)
-    
-    subtests = ['test-AZIMUTHAIFA', 'test-VTS', 'test-YUVELPTZ', 'test-YUVELRGB', 'test-YUVELTHERMAL']
-    # Process each subtest individually.
-    for subtest in subtests:
-        preds = process_subtest(subtest, args, config, detector)
-        # If a JSON directory is provided and we have predictions, update the corresponding JSON file.
-        if args.json_dir and preds is not None:
-            unmapped_images = update_json_predictions_for_subtest(subtest, preds, args, config)
-            if len(unmapped_images) > 0:
-                print(f"Unmapped images: {len(unmapped_images)}")
+    for weights in ["Albatross-v0.4.1-AZIMUTHAIFA-standard_finetune.pt", "Albatross-v0.4.1-AZIMUTHAIFA-no_scale_no_mosaic.pt", "Albatross-v0.4.1-AZIMUTHAIFA-frozen_backbone.pt",
+                    "Albatross-v0.4.1-VTS-standard_finetune.pt", "Albatross-v0.4.1-VTS-no_scale_no_mosaic.pt", "Albatross-v0.4.1-VTS-frozen_backbone.pt",
+                    "Albatross-v0.4.1-YUVELPTZ-standard_finetune.pt", "Albatross-v0.4.1-YUVELPTZ-no_scale_no_mosaic.pt", "Albatross-v0.4.1-YUVELPTZ-frozen_backbone.pt",
+                    "Albatross-v0.4.1-YUVELRGB-standard_finetune.pt", "Albatross-v0.4.1-YUVELRGB-no_scale_no_mosaic.pt", "Albatross-v0.4.1-YUVELRGB-frozen_backbone.pt",
+                    "Albatross-v0.4.1-YUVELTHERMAL-standard_finetune.pt", "Albatross-v0.4.1-YUVELTHERMAL-no_scale_no_mosaic.pt", "Albatross-v0.4.1-YUVELTHERMAL-frozen_backbone.pt",]:
 
-    # Get combined metrics.
-    combine_predictions(args, subtests)
-    combine_gt_labels_and_images(args, subtests)
-    process_subtest("COMBINED", args, config, detector, is_combined=True)
+        args.weights = weights
+
+        # Choose the right detector
+        detector = select_detector(args.model)
+        
+        subtests = ['test-AZIMUTHAIFA', 'test-VTS', 'test-YUVELPTZ', 'test-YUVELRGB', 'test-YUVELTHERMAL']
+        # Process each subtest individually.
+        for subtest in subtests:
+            preds = process_subtest(subtest, args, config, detector)
+            # If a JSON directory is provided and we have predictions, update the corresponding JSON file.
+            if args.json_dir and preds is not None:
+                unmapped_images = update_json_predictions_for_subtest(subtest, preds, args, config)
+                if len(unmapped_images) > 0:
+                    print(f"Unmapped images: {len(unmapped_images)}")
+
+        # Get combined metrics.
+        combine_predictions(args, subtests)
+        combine_gt_labels_and_images(args, subtests)
+        process_subtest("COMBINED", args, config, detector, is_combined=True, subtests=subtests)
 
 if __name__ == "__main__":
     setup_logger()

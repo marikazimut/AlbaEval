@@ -562,13 +562,13 @@ def parse_args():
     parser.add_argument(
         '--weights', 
         nargs='+', 
-        default=['Albatross-v0.4','Albatross-v0.4.1', 'Albatross-v0.4.2'],
+        default=['Albatross-v0.4.1', 'Albatross-v0.4.3_1088,1920', 'Albatross-v0.4.3_1280', 'Albatross-v0.4.4_1088,1920', 'Albatross-v0.4.4_1280'],
         help="List of model weights (e.g., Albatross-v0.3 Albatross-v0.4)"
     )
     parser.add_argument(
         '--models', 
         nargs='+', 
-        default=['yolo11s', 'yolo11s'],
+        default=['yolo11s', 'yolo12s', 'yolo12s', 'yolo11s', 'yolo11s'],
         help="List of model names (e.g., yolo11s detr-v0.1)"
     )
     parser.add_argument(
